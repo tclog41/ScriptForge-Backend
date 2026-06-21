@@ -6,7 +6,7 @@ const fs = require("fs");
 const app = express();
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 // ================= DB =================
 const DATA_FILE = "./data.json";
@@ -15,85 +15,76 @@ function loadDB() {
     try {
         if (!fs.existsSync(DATA_FILE)) return {};
         return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    } catch {
+    } catch (err) {
+        console.log("DB LOAD ERROR:", err);
         return {};
     }
 }
 
 function saveDB(db) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+    try {
+        fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+    } catch (err) {
+        console.log("DB SAVE ERROR:", err);
+    }
 }
 
-// ================= HOME =================
-app.get("/", (req, res) => {
-    res.send("ScriptForge API Online ✅");
-});
-
-// ================= CREATE LINK =================
-app.post("/create-link", (req, res) => {
-
-    const db = loadDB();
-
-    const discordId = req.body?.discordId;
-    const code = req.body?.code;
-
-    if (!discordId || !code) {
-        return res.json({ success: false });
-    }
-
-    if (!db[discordId]) {
-        db[discordId] = {
-            tokens: 0,
+function ensureUser(db, id) {
+    if (!db[id]) {
+        db[id] = {
+            tokens: 10,
             robloxId: null,
             linkCode: null
         };
     }
+}
 
-    db[discordId].linkCode = String(code);
-
-    saveDB(db);
-
-    return res.json({ success: true });
+// ================= HOME =================
+app.get("/", (req, res) => {
+    res.json({ status: "ScriptForge API Online" });
 });
 
-// ================= LINK ROBLOX =================
+// ================= LINK =================
 app.get("/link/:robloxId/:code", (req, res) => {
 
     const db = loadDB();
 
-    const robloxId = String(req.params.robloxId);
-    const code = String(req.params.code);
+    const robloxId = String(req.params.robloxId).trim();
+    const code = String(req.params.code).trim();
 
-    for (const id in db) {
+    for (const discordId in db) {
 
-        if (String(db[id].linkCode) === code) {
+        const stored = String(db[discordId].linkCode || "").trim();
 
-            db[id].robloxId = robloxId;
-            db[id].linkCode = null;
+        if (stored === code) {
+
+            db[discordId].robloxId = robloxId;
+            db[discordId].linkCode = null;
 
             saveDB(db);
 
-            return res.json({ success: true });
+            return res.json({
+                success: true
+            });
         }
     }
 
-    return res.json({ success: false });
+    return res.json({
+        success: false
+    });
 });
 
 // ================= CHECK =================
 app.get("/check/:robloxId", (req, res) => {
 
     const db = loadDB();
-
-    const robloxId = String(req.params.robloxId);
+    const robloxId = String(req.params.robloxId).trim();
 
     for (const id in db) {
-
-        if (db[id].robloxId == robloxId) {
-
+        if (db[id].robloxId === robloxId) {
             return res.json({
                 access: true,
-                tokens: db[id].tokens || 0
+                tokens: db[id].tokens
             });
         }
     }
@@ -104,53 +95,65 @@ app.get("/check/:robloxId", (req, res) => {
     });
 });
 
-// ================= AI (ROBUST FIXED) =================
-console.log("AI ROUTE HIT");
-
+// ================= AI (FIXED SAFE VERSION) =================
 app.post("/ai", (req, res) => {
 
     try {
 
         const db = loadDB();
 
-        const userId = req.body?.userId;
-        const prompt = req.body?.prompt;
+        const userId = String(req.body?.userId || "");
+        const prompt = String(req.body?.prompt || "");
 
         if (!userId || !prompt) {
-            return res.json({ reply: "AI not connected" });
+            return res.json({
+                reply: "AI not connected",
+                tokensLeft: 0
+            });
         }
 
         let user = db[userId];
 
         if (!user) {
-            return res.json({ reply: "AI not connected" });
+            return res.json({
+                reply: "AI not connected",
+                tokensLeft: 0
+            });
         }
 
-        const COST = 2;
-
-        if (user.tokens < COST) {
-            return res.json({ reply: "❌ Not enough tokens" });
+        if (user.tokens <= 0) {
+            return res.json({
+                reply: "❌ No tokens",
+                tokensLeft: 0
+            });
         }
 
+        // token cost
+        const COST = 1;
         user.tokens -= COST;
+
         saveDB(db);
 
+        // SIMPLE AI RESPONSE (you can upgrade later to DeepSeek/OpenAI)
+        const reply = "🧠 You said: " + prompt;
+
         return res.json({
-            reply: "🧠 " + prompt,
+            reply: reply,
             tokensLeft: user.tokens
         });
 
     } catch (err) {
 
-        console.error("AI ERROR:", err);
+        console.log("AI ERROR:", err);
 
         return res.json({
-            reply: "AI not connected"
+            reply: "AI not connected",
+            tokensLeft: 0
         });
     }
 });
 
 // ================= START =================
 app.listen(PORT, () => {
-    console.log("ScriptForge running on port", PORT);
+    console.log("ScriptForge API running on port", PORT);
 });
