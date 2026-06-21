@@ -4,21 +4,18 @@ const express = require("express");
 const fs = require("fs");
 
 const app = express();
-
-// IMPORTANT FIX (this was your 500 error cause)
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// ================= DATABASE =================
+// ================= DB =================
 const DATA_FILE = "./data.json";
 
 function loadDB() {
     try {
         if (!fs.existsSync(DATA_FILE)) return {};
         return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    } catch (err) {
-        console.error("DB LOAD ERROR:", err);
+    } catch {
         return {};
     }
 }
@@ -35,42 +32,28 @@ app.get("/", (req, res) => {
 // ================= CREATE LINK =================
 app.post("/create-link", (req, res) => {
 
-    try {
+    const db = loadDB();
 
-        const db = loadDB();
+    const discordId = req.body?.discordId;
+    const code = req.body?.code;
 
-        const discordId = req.body?.discordId;
-        const code = req.body?.code;
-
-        if (!discordId || !code) {
-            return res.status(400).json({
-                success: false,
-                error: "missing data"
-            });
-        }
-
-        if (!db[discordId]) {
-            db[discordId] = {
-                tokens: 0,
-                robloxId: null,
-                linkCode: null
-            };
-        }
-
-        db[discordId].linkCode = String(code);
-
-        saveDB(db);
-
-        return res.json({ success: true });
-
-    } catch (err) {
-
-        console.error("CREATE LINK ERROR:", err);
-
-        return res.status(500).json({
-            success: false
-        });
+    if (!discordId || !code) {
+        return res.json({ success: false });
     }
+
+    if (!db[discordId]) {
+        db[discordId] = {
+            tokens: 0,
+            robloxId: null,
+            linkCode: null
+        };
+    }
+
+    db[discordId].linkCode = String(code);
+
+    saveDB(db);
+
+    return res.json({ success: true });
 });
 
 // ================= LINK ROBLOX =================
@@ -78,8 +61,8 @@ app.get("/link/:robloxId/:code", (req, res) => {
 
     const db = loadDB();
 
-    const robloxId = String(req.params.robloxId).trim();
-    const code = String(req.params.code).trim();
+    const robloxId = String(req.params.robloxId);
+    const code = String(req.params.code);
 
     for (const id in db) {
 
@@ -102,7 +85,7 @@ app.get("/check/:robloxId", (req, res) => {
 
     const db = loadDB();
 
-    const robloxId = String(req.params.robloxId).trim();
+    const robloxId = String(req.params.robloxId);
 
     for (const id in db) {
 
@@ -121,41 +104,52 @@ app.get("/check/:robloxId", (req, res) => {
     });
 });
 
-// ================= AI (SAFE PLACEHOLDER) =================
-app.post("/ai", async (req, res) => {
-
-    const db = loadDB();
-
-    const { userId, prompt } = req.body;
-
-    let user = db[userId];
-
-    if (!user) {
-        return res.json({ reply: "❌ Not linked" });
-    }
-
-    const COST = 2;
-
-    if (user.tokens < COST) {
-        return res.json({ reply: "❌ Not enough tokens" });
-    }
+// ================= AI (ROBUST FIXED) =================
+app.post("/ai", (req, res) => {
 
     try {
+
+        const db = loadDB();
+
+        const { userId, prompt } = req.body || {};
+
+        if (!userId || !prompt) {
+            return res.json({
+                reply: "AI not connected"
+            });
+        }
+
+        let user = db[userId];
+
+        if (!user) {
+            return res.json({
+                reply: "AI not connected"
+            });
+        }
+
+        const COST = 2;
+
+        if (user.tokens < COST) {
+            return res.json({
+                reply: "❌ Not enough tokens"
+            });
+        }
 
         user.tokens -= COST;
         saveDB(db);
 
+        // SIMPLE AI RESPONSE (replace later with DeepSeek if needed)
         return res.json({
-            reply: "AI: " + prompt,
+            reply: "🧠 AI: " + prompt,
             tokensLeft: user.tokens
         });
 
     } catch (err) {
 
-        console.error(err);
+        console.error("AI ERROR:", err);
 
         return res.json({
-            reply: "AI error"
+            reply: "AI not connected"
         });
     }
 });
