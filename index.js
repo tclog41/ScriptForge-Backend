@@ -111,36 +111,30 @@ app.post("/ai", (req, res) => {
 
         const db = loadDB();
 
-        const { userId, prompt } = req.body || {};
+        const userId = req.body?.userId;
+        const prompt = req.body?.prompt;
 
         if (!userId || !prompt) {
-            return res.json({
-                reply: "AI not connected"
-            });
+            return res.json({ reply: "AI not connected" });
         }
 
         let user = db[userId];
 
         if (!user) {
-            return res.json({
-                reply: "AI not connected"
-            });
+            return res.json({ reply: "AI not connected" });
         }
 
         const COST = 2;
 
         if (user.tokens < COST) {
-            return res.json({
-                reply: "❌ Not enough tokens"
-            });
+            return res.json({ reply: "❌ Not enough tokens" });
         }
 
         user.tokens -= COST;
         saveDB(db);
 
-        // SIMPLE AI RESPONSE (replace later with DeepSeek if needed)
         return res.json({
-            reply: "🧠 AI: " + prompt,
+            reply: "🧠 " + prompt,
             tokensLeft: user.tokens
         });
 
