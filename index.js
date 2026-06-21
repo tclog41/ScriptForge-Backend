@@ -105,6 +105,8 @@ app.get("/check/:robloxId", (req, res) => {
 });
 
 // ================= AI (ROBUST FIXED) =================
+console.log("AI ROUTE HIT");
+
 app.post("/ai", (req, res) => {
 
     try {
