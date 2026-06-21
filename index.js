@@ -2,6 +2,7 @@ require("dotenv").config();
 
 const express = require("express");
 const fs = require("fs");
+const axios = require("axios");
 
 const app = express();
 app.use(express.json());
@@ -35,7 +36,7 @@ function ensureUser(id) {
     }
 }
 
-// ================= LINK ROBLOX =================
+// ================= LINK SYSTEM =================
 app.get("/link/:robloxId/:code", (req, res) => {
     const { robloxId, code } = req.params;
 
@@ -74,17 +75,15 @@ app.get("/check/:robloxId", (req, res) => {
     });
 });
 
-// ================= USE AI (DEDUCT TOKENS) =================
+// ================= AI (DEEPSEEK REAL) =================
 app.post("/use-ai", async (req, res) => {
     const { robloxId, prompt } = req.body;
 
     let user = null;
-    let discordId = null;
 
     for (const id in db) {
         if (db[id].robloxId == robloxId) {
             user = db[id];
-            discordId = id;
         }
     }
 
@@ -96,20 +95,49 @@ app.post("/use-ai", async (req, res) => {
         return res.json({ error: "No tokens" });
     }
 
-    // deduct token
+    // deduct token FIRST
     user.tokens -= 1;
     saveDB();
 
-    // simple AI response (replace with DeepSeek if needed)
-    const response =
-        "ScriptForge AI:\n\nPrompt: " +
-        prompt +
-        "\n\n(Replace this with DeepSeek API later)";
+    try {
+        const response = await axios.post(
+            "https://api.deepseek.com/chat/completions",
+            {
+                model: "deepseek-chat",
+                messages: [
+                    {
+                        role: "system",
+                        content: "You are ScriptForge AI, a Roblox Lua scripting expert. Always output clean, working Roblox scripts when asked."
+                    },
+                    {
+                        role: "user",
+                        content: prompt
+                    }
+                ],
+                temperature: 0.7
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
+                    "Content-Type": "application/json"
+                }
+            }
+        );
 
-    res.json({
-        reply: response,
-        tokensLeft: user.tokens
-    });
+        const aiReply = response.data.choices[0].message.content;
+
+        return res.json({
+            reply: aiReply,
+            tokensLeft: user.tokens
+        });
+
+    } catch (err) {
+        console.log("DeepSeek Error:", err.response?.data || err.message);
+
+        return res.json({
+            error: "AI request failed"
+        });
+    }
 });
 
 // ================= START SERVER =================
