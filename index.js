@@ -12,74 +12,122 @@ const PORT = process.env.PORT || 3000;
 const DATA_FILE = "./data.json";
 
 function loadDB() {
-    try {
-        if (!fs.existsSync(DATA_FILE)) return {};
-        return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    } catch {
-        return {};
-    }
+try {
+if (!fs.existsSync(DATA_FILE)) return {};
+return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+} catch {
+return {};
+}
 }
 
 function saveDB(db) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
 }
 
 // ================= HOME =================
 app.get("/", (req, res) => {
-    res.send("ScriptForge API Online ✅");
+res.send("ScriptForge API Online ✅");
 });
 
-// ================= LINK SYSTEM (FIXED) =================
-app.get("/link/:robloxId/:code", (req, res) => {
-    const db = loadDB(); // 🔥 ALWAYS FRESH
+// ================= CREATE LINK CODE =================
+app.post("/create-link", (req, res) => {
 
-    const robloxId = String(req.params.robloxId).trim();
-    const code = String(req.params.code).trim();
+```
+const db = loadDB();
 
-    for (const discordId in db) {
+const { discordId, code } = req.body;
 
-        const storedCode = String(db[discordId].linkCode || "").trim();
-
-        if (storedCode === code) {
-
-            db[discordId].robloxId = robloxId;
-            db[discordId].linkCode = null;
-
-            saveDB(db);
-
-            return res.json({
-                success: true
-            });
-        }
-    }
-
+if (!discordId || !code) {
     return res.json({
         success: false
     });
+}
+
+if (!db[discordId]) {
+    db[discordId] = {
+        tokens: 0,
+        robloxId: null,
+        linkCode: null
+    };
+}
+
+db[discordId].linkCode = String(code);
+
+saveDB(db);
+
+return res.json({
+    success: true
+});
+```
+
+});
+
+// ================= LINK ROBLOX ACCOUNT =================
+app.get("/link/:robloxId/:code", (req, res) => {
+
+```
+const db = loadDB();
+
+const robloxId = String(req.params.robloxId).trim();
+const code = String(req.params.code).trim();
+
+for (const discordId in db) {
+
+    const storedCode =
+        String(db[discordId].linkCode || "").trim();
+
+    if (storedCode === code) {
+
+        db[discordId].robloxId = robloxId;
+        db[discordId].linkCode = null;
+
+        saveDB(db);
+
+        return res.json({
+            success: true
+        });
+    }
+}
+
+return res.json({
+    success: false
+});
+```
+
 });
 
 // ================= CHECK TOKENS =================
 app.get("/check/:robloxId", (req, res) => {
-    const db = loadDB(); // 🔥 ALWAYS FRESH
 
-    const robloxId = String(req.params.robloxId).trim();
+```
+const db = loadDB();
 
-    for (const discordId in db) {
-        if (db[discordId].robloxId == robloxId) {
-            return res.json({
-                access: true,
-                tokens: db[discordId].tokens || 0
-            });
-        }
+const robloxId =
+    String(req.params.robloxId).trim();
+
+for (const discordId in db) {
+
+    if (db[discordId].robloxId == robloxId) {
+
+        return res.json({
+            access: true,
+            tokens: db[discordId].tokens || 0
+        });
     }
+}
 
-    res.json({
-        access: false,
-        tokens: 0
-    });
+return res.json({
+    access: false,
+    tokens: 0
+});
+```
+
 });
 
-// ================= START SERVER =================
+// ================= START =================
 app.listen(PORT, () => {
-    console.log("ScriptForge running on port", PORT);
+console.log(
+"ScriptForge running on port",
+PORT
+);
 });
