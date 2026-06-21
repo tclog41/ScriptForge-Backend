@@ -36,7 +36,12 @@ function ensureUser(id) {
     }
 }
 
-// ================= LINK SYSTEM =================
+// ================= ROOT =================
+app.get("/", (req, res) => {
+    res.send("ScriptForge Backend Running ✅");
+});
+
+// ================= LINK ROBLOX =================
 app.get("/link/:robloxId/:code", (req, res) => {
     const { robloxId, code } = req.params;
 
@@ -48,19 +53,23 @@ app.get("/link/:robloxId/:code", (req, res) => {
 
             saveDB();
 
-            return res.json({ success: true });
+            return res.json({
+                success: true
+            });
         }
     }
 
-    res.json({ success: false });
+    res.json({
+        success: false
+    });
 });
 
 // ================= CHECK TOKENS =================
 app.get("/check/:robloxId", (req, res) => {
-    const id = req.params.robloxId;
+    const robloxId = req.params.robloxId;
 
     for (const discordId in db) {
-        if (db[discordId].robloxId == id) {
+        if (db[discordId].robloxId == robloxId) {
 
             return res.json({
                 access: true,
@@ -75,7 +84,7 @@ app.get("/check/:robloxId", (req, res) => {
     });
 });
 
-// ================= AI (DEEPSEEK REAL) =================
+// ================= USE AI (DEEPSEEK + TOKENS) =================
 app.post("/use-ai", async (req, res) => {
     const { robloxId, prompt } = req.body;
 
@@ -88,14 +97,18 @@ app.post("/use-ai", async (req, res) => {
     }
 
     if (!user) {
-        return res.json({ error: "Not linked" });
+        return res.json({
+            error: "Account not linked"
+        });
     }
 
     if (user.tokens < 1) {
-        return res.json({ error: "No tokens" });
+        return res.json({
+            error: "No tokens"
+        });
     }
 
-    // deduct token FIRST
+    // deduct token first
     user.tokens -= 1;
     saveDB();
 
@@ -107,7 +120,7 @@ app.post("/use-ai", async (req, res) => {
                 messages: [
                     {
                         role: "system",
-                        content: "You are ScriptForge AI, a Roblox Lua scripting expert. Always output clean, working Roblox scripts when asked."
+                        content: "You are ScriptForge AI, a Roblox Lua scripting assistant. Always output clean, working Roblox scripts."
                     },
                     {
                         role: "user",
@@ -140,9 +153,30 @@ app.post("/use-ai", async (req, res) => {
     }
 });
 
+// ================= ADD TOKENS (OPTIONAL ADMIN TOOL) =================
+app.post("/add-tokens", (req, res) => {
+    const { robloxId, amount } = req.body;
+
+    for (const id in db) {
+        if (db[id].robloxId == robloxId) {
+            db[id].tokens += amount;
+            saveDB();
+
+            return res.json({
+                success: true,
+                newBalance: db[id].tokens
+            });
+        }
+    }
+
+    res.json({
+        success: false
+    });
+});
+
 // ================= START SERVER =================
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("ScriptForge API running on", PORT);
+    console.log("ScriptForge Backend running on port", PORT);
 });
