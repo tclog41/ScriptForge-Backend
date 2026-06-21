@@ -32,7 +32,7 @@ res.send("ScriptForge API Online ✅");
 // ================= CREATE LINK CODE =================
 app.post("/create-link", (req, res) => {
 
-```
+
 const db = loadDB();
 
 const { discordId, code } = req.body;
@@ -58,14 +58,14 @@ saveDB(db);
 return res.json({
     success: true
 });
-```
+
 
 });
 
 // ================= LINK ROBLOX ACCOUNT =================
 app.get("/link/:robloxId/:code", (req, res) => {
 
-```
+
 const db = loadDB();
 
 const robloxId = String(req.params.robloxId).trim();
@@ -92,14 +92,14 @@ for (const discordId in db) {
 return res.json({
     success: false
 });
-```
+
 
 });
 
 // ================= CHECK TOKENS =================
 app.get("/check/:robloxId", (req, res) => {
 
-```
+
 const db = loadDB();
 
 const robloxId =
@@ -120,7 +120,7 @@ return res.json({
     access: false,
     tokens: 0
 });
-```
+
 
 });
 
