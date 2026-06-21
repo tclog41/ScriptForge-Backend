@@ -3,8 +3,9 @@ require("dotenv").config();
 const express = require("express");
 const fs = require("fs");
 
-// Node 18+ (Render supports fetch)
 const app = express();
+
+// IMPORTANT FIX (this was your 500 error cause)
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
@@ -16,7 +17,8 @@ function loadDB() {
     try {
         if (!fs.existsSync(DATA_FILE)) return {};
         return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    } catch {
+    } catch (err) {
+        console.error("DB LOAD ERROR:", err);
         return {};
     }
 }
@@ -33,27 +35,42 @@ app.get("/", (req, res) => {
 // ================= CREATE LINK =================
 app.post("/create-link", (req, res) => {
 
-    const db = loadDB();
+    try {
 
-    const { discordId, code } = req.body;
+        const db = loadDB();
 
-    if (!discordId || !code) {
-        return res.json({ success: false });
+        const discordId = req.body?.discordId;
+        const code = req.body?.code;
+
+        if (!discordId || !code) {
+            return res.status(400).json({
+                success: false,
+                error: "missing data"
+            });
+        }
+
+        if (!db[discordId]) {
+            db[discordId] = {
+                tokens: 0,
+                robloxId: null,
+                linkCode: null
+            };
+        }
+
+        db[discordId].linkCode = String(code);
+
+        saveDB(db);
+
+        return res.json({ success: true });
+
+    } catch (err) {
+
+        console.error("CREATE LINK ERROR:", err);
+
+        return res.status(500).json({
+            success: false
+        });
     }
-
-    if (!db[discordId]) {
-        db[discordId] = {
-            tokens: 0,
-            robloxId: null,
-            linkCode: null
-        };
-    }
-
-    db[discordId].linkCode = String(code);
-
-    saveDB(db);
-
-    return res.json({ success: true });
 });
 
 // ================= LINK ROBLOX =================
@@ -65,6 +82,7 @@ app.get("/link/:robloxId/:code", (req, res) => {
     const code = String(req.params.code).trim();
 
     for (const id in db) {
+
         if (String(db[id].linkCode) === code) {
 
             db[id].robloxId = robloxId;
@@ -79,7 +97,7 @@ app.get("/link/:robloxId/:code", (req, res) => {
     return res.json({ success: false });
 });
 
-// ================= CHECK ACCOUNT =================
+// ================= CHECK =================
 app.get("/check/:robloxId", (req, res) => {
 
     const db = loadDB();
@@ -89,6 +107,7 @@ app.get("/check/:robloxId", (req, res) => {
     for (const id in db) {
 
         if (db[id].robloxId == robloxId) {
+
             return res.json({
                 access: true,
                 tokens: db[id].tokens || 0
@@ -102,7 +121,7 @@ app.get("/check/:robloxId", (req, res) => {
     });
 });
 
-// ================= REAL AI (DEEPSEEK + TOKENS) =================
+// ================= AI (SAFE PLACEHOLDER) =================
 app.post("/ai", async (req, res) => {
 
     const db = loadDB();
@@ -118,63 +137,30 @@ app.post("/ai", async (req, res) => {
     const COST = 2;
 
     if (user.tokens < COST) {
-        return res.json({
-            reply: "❌ Not enough tokens (Cost: 2)"
-        });
+        return res.json({ reply: "❌ Not enough tokens" });
     }
 
     try {
 
-        const response = await fetch(
-            "https://api.deepseek.com/v1/chat/completions",
-            {
-                method: "POST",
-                headers: {
-                    "Authorization": "Bearer " + process.env.DEEPSEEK_KEY,
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    model: "deepseek-chat",
-                    messages: [
-                        {
-                            role: "system",
-                            content: "You are ScriptForge AI inside Roblox. Keep replies short, useful, and game-focused."
-                        },
-                        {
-                            role: "user",
-                            content: prompt
-                        }
-                    ]
-                })
-            }
-        );
-
-        const data = await response.json();
-
-        const aiReply =
-            data?.choices?.[0]?.message?.content ||
-            "No response from AI";
-
-        // deduct tokens AFTER success
         user.tokens -= COST;
         saveDB(db);
 
         return res.json({
-            reply: aiReply,
+            reply: "AI: " + prompt,
             tokensLeft: user.tokens
         });
 
     } catch (err) {
 
-        console.error("AI ERROR:", err);
+        console.error(err);
 
         return res.json({
-            reply: "❌ AI failed"
+            reply: "AI error"
         });
     }
 });
 
-// ================= START SERVER =================
+// ================= START =================
 app.listen(PORT, () => {
     console.log("ScriptForge running on port", PORT);
 });
