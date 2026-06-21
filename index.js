@@ -1,124 +1,120 @@
 require("dotenv").config();
 
 const express = require("express");
-const axios = require("axios");
+const fs = require("fs");
 
 const app = express();
 app.use(express.json());
 
-// --------------------
-// TOKEN STORAGE (TEMP)
-// --------------------
-const userTokens = {};
+// ================= DATABASE =================
+const DATA_FILE = "./data.json";
 
-// --------------------
-// TOKEN FUNCTIONS
-// --------------------
-function getTokens(userId) {
-    if (!userTokens[userId]) userTokens[userId] = 0;
-    return userTokens[userId];
-}
-
-function addTokens(userId, amount) {
-    if (!userTokens[userId]) userTokens[userId] = 0;
-    userTokens[userId] += amount;
-}
-
-function useToken(userId) {
-    if (!userTokens[userId] || userTokens[userId] <= 0) return false;
-    userTokens[userId] -= 1;
-    return true;
-}
-
-// --------------------
-// TEST ROUTE
-// --------------------
-app.get("/", (req, res) => {
-    res.send("ScriptForge backend is running");
-});
-
-// --------------------
-// GET TOKENS
-// --------------------
-app.get("/tokens/:userId", (req, res) => {
-    const userId = req.params.userId;
-
-    res.json({
-        tokens: getTokens(userId)
-    });
-});
-
-// --------------------
-// BUY TOKENS SHOP
-// --------------------
-app.post("/buy", (req, res) => {
-    const { userId, package } = req.body;
-
-    let amount = 0;
-
-    if (package === "small") amount = 100;
-    if (package === "medium") amount = 500;
-    if (package === "large") amount = 2000;
-
-    addTokens(userId, amount);
-
-    res.json({
-        message: "Purchase successful",
-        tokensAdded: amount,
-        total: getTokens(userId)
-    });
-});
-
-// --------------------
-// AI ENDPOINT (USES TOKENS)
-// --------------------
-app.post("/ai", async (req, res) => {
-    const { prompt, userId } = req.body;
-
-    if (!prompt || !userId) {
-        return res.json({ error: "Missing prompt or userId" });
-    }
-
-    // check tokens
-    if (!useToken(userId)) {
-        return res.json({ error: "No tokens left" });
-    }
-
+function loadDB() {
     try {
-        const response = await axios.post(
-            "https://api.deepseek.com/chat/completions",
-            {
-                model: "deepseek-chat",
-                messages: [
-                    { role: "user", content: prompt }
-                ]
-            },
-            {
-                headers: {
-                    Authorization: `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-                    "Content-Type": "application/json"
-                }
-            }
-        );
-
-        res.json({
-            reply: response.data.choices[0].message.content,
-            tokensLeft: getTokens(userId)
-        });
-
-    } catch (err) {
-        res.json({
-            error: "AI failed",
-            details: err.message
-        });
+        if (!fs.existsSync(DATA_FILE)) return {};
+        return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    } catch {
+        return {};
     }
+}
+
+function saveDB() {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
+}
+
+let db = loadDB();
+
+// ================= HELPERS =================
+function ensureUser(id) {
+    if (!db[id]) {
+        db[id] = {
+            tokens: 0,
+            robloxId: null,
+            linkCode: null
+        };
+    }
+}
+
+// ================= LINK ROBLOX =================
+app.get("/link/:robloxId/:code", (req, res) => {
+    const { robloxId, code } = req.params;
+
+    for (const discordId in db) {
+        if (db[discordId].linkCode === code) {
+
+            db[discordId].robloxId = robloxId;
+            db[discordId].linkCode = null;
+
+            saveDB();
+
+            return res.json({ success: true });
+        }
+    }
+
+    res.json({ success: false });
 });
 
-// --------------------
-// START SERVER
-// --------------------
+// ================= CHECK TOKENS =================
+app.get("/check/:robloxId", (req, res) => {
+    const id = req.params.robloxId;
+
+    for (const discordId in db) {
+        if (db[discordId].robloxId == id) {
+
+            return res.json({
+                access: true,
+                tokens: db[discordId].tokens
+            });
+        }
+    }
+
+    res.json({
+        access: false,
+        tokens: 0
+    });
+});
+
+// ================= USE AI (DEDUCT TOKENS) =================
+app.post("/use-ai", async (req, res) => {
+    const { robloxId, prompt } = req.body;
+
+    let user = null;
+    let discordId = null;
+
+    for (const id in db) {
+        if (db[id].robloxId == robloxId) {
+            user = db[id];
+            discordId = id;
+        }
+    }
+
+    if (!user) {
+        return res.json({ error: "Not linked" });
+    }
+
+    if (user.tokens < 1) {
+        return res.json({ error: "No tokens" });
+    }
+
+    // deduct token
+    user.tokens -= 1;
+    saveDB();
+
+    // simple AI response (replace with DeepSeek if needed)
+    const response =
+        "ScriptForge AI:\n\nPrompt: " +
+        prompt +
+        "\n\n(Replace this with DeepSeek API later)";
+
+    res.json({
+        reply: response,
+        tokensLeft: user.tokens
+    });
+});
+
+// ================= START SERVER =================
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("Server running on port", PORT);
+    console.log("ScriptForge API running on", PORT);
 });
