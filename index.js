@@ -44,7 +44,39 @@ app.get("/", (req, res) => {
     res.json({ status: "ScriptForge API Online" });
 });
 
-// ================= LINK =================
+
+// ================= CREATE LINK (FIXED) =================
+app.post("/create-link", (req, res) => {
+
+    try {
+
+        const db = loadDB();
+
+        const discordId = String(req.body?.discordId || "");
+        const code = String(req.body?.code || "");
+
+        if (!discordId || !code) {
+            return res.json({ success: false });
+        }
+
+        ensureUser(db, discordId);
+
+        db[discordId].linkCode = code;
+
+        saveDB(db);
+
+        return res.json({ success: true });
+
+    } catch (err) {
+
+        console.log("CREATE LINK ERROR:", err);
+
+        return res.json({ success: false });
+    }
+});
+
+
+// ================= LINK VERIFY =================
 app.get("/link/:robloxId/:code", (req, res) => {
 
     const db = loadDB();
@@ -63,22 +95,19 @@ app.get("/link/:robloxId/:code", (req, res) => {
 
             saveDB(db);
 
-            return res.json({
-                success: true
-            });
+            return res.json({ success: true });
         }
     }
 
-    return res.json({
-        success: false
-    });
+    return res.json({ success: false });
 });
+
 
 // ================= CHECK =================
 app.get("/check/:robloxId", (req, res) => {
 
     const db = loadDB();
-    const robloxId = String(req.params.robloxId).trim();
+    const robloxId = String(req.params.robloxId);
 
     for (const id in db) {
         if (db[id].robloxId === robloxId) {
@@ -95,7 +124,8 @@ app.get("/check/:robloxId", (req, res) => {
     });
 });
 
-// ================= AI (FIXED SAFE VERSION) =================
+
+// ================= AI =================
 app.post("/ai", (req, res) => {
 
     try {
@@ -105,41 +135,27 @@ app.post("/ai", (req, res) => {
         const userId = String(req.body?.userId || "");
         const prompt = String(req.body?.prompt || "");
 
-        if (!userId || !prompt) {
+        if (!db[userId]) {
             return res.json({
                 reply: "AI not connected",
                 tokensLeft: 0
             });
         }
 
-        let user = db[userId];
-
-        if (!user) {
-            return res.json({
-                reply: "AI not connected",
-                tokensLeft: 0
-            });
-        }
-
-        if (user.tokens <= 0) {
+        if (db[userId].tokens <= 0) {
             return res.json({
                 reply: "❌ No tokens",
                 tokensLeft: 0
             });
         }
 
-        // token cost
-        const COST = 1;
-        user.tokens -= COST;
+        db[userId].tokens -= 1;
 
         saveDB(db);
 
-        // SIMPLE AI RESPONSE (you can upgrade later to DeepSeek/OpenAI)
-        const reply = "🧠 You said: " + prompt;
-
         return res.json({
-            reply: reply,
-            tokensLeft: user.tokens
+            reply: "🧠 " + prompt,
+            tokensLeft: db[userId].tokens
         });
 
     } catch (err) {
@@ -152,6 +168,7 @@ app.post("/ai", (req, res) => {
         });
     }
 });
+
 
 // ================= START =================
 app.listen(PORT, () => {
