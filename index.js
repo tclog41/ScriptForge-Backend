@@ -45,11 +45,9 @@ app.get("/", (req, res) => {
 });
 
 
-// ================= CREATE LINK (FIXED) =================
+// ================= CREATE LINK =================
 app.post("/create-link", (req, res) => {
-
     try {
-
         const db = loadDB();
 
         const discordId = String(req.body?.discordId || "");
@@ -68,9 +66,7 @@ app.post("/create-link", (req, res) => {
         return res.json({ success: true });
 
     } catch (err) {
-
         console.log("CREATE LINK ERROR:", err);
-
         return res.json({ success: false });
     }
 });
@@ -125,8 +121,8 @@ app.get("/check/:robloxId", (req, res) => {
 });
 
 
-// ================= AI =================
-app.post("/ai", (req, res) => {
+// ================= AI (FIXED + REAL) =================
+app.post("/ai", async (req, res) => {
 
     try {
 
@@ -135,27 +131,57 @@ app.post("/ai", (req, res) => {
         const userId = String(req.body?.userId || "");
         const prompt = String(req.body?.prompt || "");
 
-        if (!db[userId]) {
+        if (!userId || !prompt) {
             return res.json({
-                reply: "AI not connected",
-                tokensLeft: 0
+                reply: "Missing userId or prompt",
+                tokensLeft: 0,
+                success: false
             });
         }
+
+        // ALWAYS ensure user exists (fixes AI not connected bug)
+        ensureUser(db, userId);
 
         if (db[userId].tokens <= 0) {
             return res.json({
-                reply: "❌ No tokens",
-                tokensLeft: 0
+                reply: "❌ No tokens left",
+                tokensLeft: 0,
+                success: false
             });
         }
 
+        // remove token
         db[userId].tokens -= 1;
-
         saveDB(db);
 
+        // ================= REAL AI CALL =================
+        const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Authorization": `Bearer ${process.env.AI_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: "deepseek-chat",
+                messages: [
+                    {
+                        role: "user",
+                        content: prompt
+                    }
+                ]
+            })
+        });
+
+        const data = await response.json();
+
+        const reply =
+            data?.choices?.[0]?.message?.content ||
+            "AI error: no response from model";
+
         return res.json({
-            reply: "🧠 " + prompt,
-            tokensLeft: db[userId].tokens
+            reply: reply,
+            tokensLeft: db[userId].tokens,
+            success: true
         });
 
     } catch (err) {
@@ -163,8 +189,9 @@ app.post("/ai", (req, res) => {
         console.log("AI ERROR:", err);
 
         return res.json({
-            reply: "AI not connected",
-            tokensLeft: 0
+            reply: "AI not connected (backend error)",
+            tokensLeft: 0,
+            success: false
         });
     }
 });
