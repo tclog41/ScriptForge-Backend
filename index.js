@@ -8,7 +8,7 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 10000;
 
-// ================= DB =================
+// ================= DATABASE =================
 const DATA_FILE = "./data.json";
 
 function loadDB() {
@@ -30,7 +30,7 @@ function ensureUser(db, id) {
     }
 }
 
-// ================= AI TEMPLATE ENGINE =================
+// ================= AI ENDPOINT =================
 
 app.post("/ai", async (req, res) => {
 
@@ -40,7 +40,10 @@ app.post("/ai", async (req, res) => {
 
         const userId = String(req.body?.userId || "");
         const prompt = String(req.body?.prompt || "");
-        const template = String(req.body?.template || "Basic");
+        const template = String(req.body?.template || "Basic Obby");
+
+        const project = req.body?.project || {};
+        const history = req.body?.history || [];
 
         if (!userId || !prompt) {
             return res.json({ success: false, reply: "Missing data" });
@@ -49,34 +52,36 @@ app.post("/ai", async (req, res) => {
         ensureUser(db, userId);
 
         if (db[userId].tokens <= 0) {
-            return res.json({ success: false, reply: "No tokens" });
+            return res.json({ success: false, reply: "No tokens left" });
         }
 
         db[userId].tokens -= 1;
         saveDB(db);
 
+        // ================= MEMORY PACK =================
+
+        const memory = {
+            template,
+            project,
+            history: history.slice(-5)
+        };
+
         // ================= SYSTEM PROMPT =================
 
         const systemPrompt = `
-You are ScriptForge AI Template Engine V2.
+You are ScriptForge AI V2.
 
-You ONLY modify templates.
+You are a Roblox development assistant.
 
 RULES:
-- Return ONLY JSON
-- No explanations
-- Only modify allowed fields
-- Keep structure valid
+- Use memory to understand context
+- Only respond with useful code or edits
+- Do NOT generate unnecessary full systems
+- Keep responses clean and structured
+- Be consistent
 
-Template Type:
-${template}
-
-OUTPUT FORMAT:
-{
-  "edit": {
-    "field": "value"
-  }
-}
+MEMORY:
+${JSON.stringify(memory)}
 `;
 
         const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
@@ -104,8 +109,6 @@ OUTPUT FORMAT:
 
         const data = await response.json();
 
-        console.log("AI RESPONSE:", JSON.stringify(data, null, 2));
-
         if (!response.ok) {
             return res.json({
                 success: false,
@@ -123,7 +126,7 @@ OUTPUT FORMAT:
 
     } catch (err) {
 
-        console.log(err);
+        console.log("AI ERROR:", err);
 
         return res.json({
             success: false,
@@ -132,6 +135,8 @@ OUTPUT FORMAT:
     }
 });
 
+// ================= START SERVER =================
+
 app.listen(PORT, () => {
-    console.log("ScriptForge V2 running on", PORT);
+    console.log("ScriptForge V2 running on port", PORT);
 });
