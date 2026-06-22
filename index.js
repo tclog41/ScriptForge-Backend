@@ -25,7 +25,7 @@ function saveMessage(userId, role, message) {
         time: Date.now()
     });
 
-    // limit memory size (cost saver)
+    // limit memory (cost control)
     if (userMemory[userId].messages.length > 30) {
         userMemory[userId].messages.shift();
     }
@@ -93,17 +93,86 @@ let TEMPLATES = loadTemplates();
 console.log("✅ Templates loaded:", Object.keys(TEMPLATES));
 
 /* =========================
-   🔍 TEMPLATE ROUTER
+   🧠 SMART INTENT ROUTER (v2)
 ========================= */
 
 function getTemplateFromMessage(message) {
     message = message.toLowerCase();
 
-    if (message.includes("sprint")) return "sprint";
-    if (message.includes("door")) return "door";
-    if (message.includes("ui")) return "ui";
+    const scores = {
+        sprint: 0,
+        door: 0,
+        ui: 0,
+        crouch: 0,
+        pickup: 0,
+        damage: 0,
+        inventory: 0,
+        checkpoint: 0,
+        leaderstats: 0,
+        stamina: 0
+    };
 
-    return null;
+    // ------------------------
+    // 🧠 SCORING SYSTEM
+    // ------------------------
+
+    if (message.includes("run") || message.includes("sprint") || message.includes("fast")) {
+        scores.sprint += 3;
+    }
+
+    if (message.includes("door") || message.includes("open")) {
+        scores.door += 3;
+    }
+
+    if (message.includes("ui") || message.includes("hud") || message.includes("interface")) {
+        scores.ui += 3;
+    }
+
+    if (message.includes("crouch") || message.includes("duck")) {
+        scores.crouch += 3;
+    }
+
+    if (message.includes("pickup") || message.includes("item") || message.includes("grab")) {
+        scores.pickup += 3;
+    }
+
+    if (message.includes("damage") || message.includes("combat") || message.includes("hit")) {
+        scores.damage += 3;
+    }
+
+    if (message.includes("inventory") || message.includes("bag")) {
+        scores.inventory += 3;
+    }
+
+    if (message.includes("checkpoint") || message.includes("save")) {
+        scores.checkpoint += 3;
+    }
+
+    if (message.includes("leaderstats") || message.includes("coins") || message.includes("money")) {
+        scores.leaderstats += 3;
+    }
+
+    if (message.includes("stamina") || message.includes("energy")) {
+        scores.stamina += 3;
+    }
+
+    // ------------------------
+    // 🧠 PICK BEST MATCH
+    // ------------------------
+
+    let bestMatch = null;
+    let bestScore = 0;
+
+    for (const key in scores) {
+        if (scores[key] > bestScore) {
+            bestScore = scores[key];
+            bestMatch = key;
+        }
+    }
+
+    if (bestScore === 0) return null;
+
+    return bestMatch;
 }
 
 /* =========================
@@ -132,12 +201,11 @@ async function callAI({ message, memory }) {
         .map(m => `${m.role}: ${m.content}`)
         .join("\n");
 
-    // Replace with DeepSeek/OpenAI later
     return `-- AI RESPONSE\n-- CONTEXT:\n${context}\n\n-- USER: ${message}`;
 }
 
 /* =========================
-   🚀 MAIN GENERATE ROUTE (HYBRID SYSTEM)
+   🚀 HYBRID GENERATE ROUTE
 ========================= */
 
 app.post("/generate", async (req, res) => {
@@ -156,13 +224,10 @@ app.post("/generate", async (req, res) => {
     // --------------------
     saveMessage(userId, "user", message);
 
-    // --------------------
-    // 🧠 GET MEMORY
-    // --------------------
     const memory = getMemory(userId);
 
     // --------------------
-    // 🥇 TEMPLATE FIRST
+    // 🥇 TEMPLATE FIRST (SMART ROUTER)
     // --------------------
     const templateName = getTemplateFromMessage(message);
 
@@ -176,6 +241,7 @@ app.post("/generate", async (req, res) => {
         return res.json({
             success: true,
             source: "template",
+            template: templateName,
             script
         });
     }
@@ -225,12 +291,12 @@ app.get("/reload-templates", (req, res) => {
 });
 
 /* =========================
-   🧪 STATUS ROUTE
+   🧪 STATUS
 ========================= */
 
 app.get("/", (req, res) => {
     res.json({
-        status: "ScriptForge FULL SYSTEM ONLINE",
+        status: "ScriptForge v2 ONLINE (Hybrid + Memory + Smart Routing)",
         templates: Object.keys(TEMPLATES),
         users: Object.keys(userMemory).length
     });
@@ -243,5 +309,5 @@ app.get("/", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log(`🚀 ScriptForge running on port ${PORT}`);
+    console.log(`🚀 ScriptForge v2 running on port ${PORT}`);
 });
