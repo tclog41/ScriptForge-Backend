@@ -1,142 +1,94 @@
-require("dotenv").config();
-
 const express = require("express");
 const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.use(express.json());
 
-const PORT = process.env.PORT || 10000;
+// --------------------
+// 📁 TEMPLATE LOADER
+// --------------------
 
-// ================= DATABASE =================
-const DATA_FILE = "./data.json";
+const templatesPath = path.join(__dirname, "templates");
 
-function loadDB() {
-    try {
-        if (!fs.existsSync(DATA_FILE)) return {};
-        return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    } catch {
-        return {};
+function loadTemplates() {
+    const templates = {};
+
+    // check folder exists
+    if (!fs.existsSync(templatesPath)) {
+        console.log("Templates folder not found!");
+        return templates;
     }
+
+    const files = fs.readdirSync(templatesPath);
+
+    files.forEach(file => {
+        if (file.endsWith(".json")) {
+            const filePath = path.join(templatesPath, file);
+            const data = fs.readFileSync(filePath, "utf-8");
+
+            try {
+                const template = JSON.parse(data);
+                templates[template.name] = template;
+            } catch (err) {
+                console.log("Error loading template:", file, err.message);
+            }
+        }
+    });
+
+    return templates;
 }
 
-function saveDB(db) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2));
-}
+// Load templates into memory
+let TEMPLATES = loadTemplates();
 
-function ensureUser(db, id) {
-    if (!db[id]) {
-        db[id] = { tokens: 10 };
-    }
-}
+console.log("✅ Templates loaded:", Object.keys(TEMPLATES));
 
-// ================= AI ENDPOINT =================
-
-app.post("/ai", async (req, res) => {
-
-    try {
-
-        const db = loadDB();
-
-        const userId = String(req.body?.userId || "");
-        const prompt = String(req.body?.prompt || "");
-        const template = String(req.body?.template || "Basic Obby");
-
-        const project = req.body?.project || {};
-        const history = req.body?.history || [];
-
-        if (!userId || !prompt) {
-            return res.json({ success: false, reply: "Missing data" });
-        }
-
-        ensureUser(db, userId);
-
-        if (db[userId].tokens <= 0) {
-            return res.json({ success: false, reply: "No tokens left" });
-        }
-
-        db[userId].tokens -= 1;
-        saveDB(db);
-
-        // ================= MEMORY PACK =================
-
-        const memory = {
-            template,
-            project,
-            history: history.slice(-5)
-        };
-
-        // ================= SYSTEM PROMPT =================
-
-        const systemPrompt = `
-You are ScriptForge AI V2.
-
-You are a Roblox development assistant.
-
-RULES:
-- Use memory to understand context
-- Only respond with useful code or edits
-- Do NOT generate unnecessary full systems
-- Keep responses clean and structured
-- Be consistent
-
-MEMORY:
-${JSON.stringify(memory)}
-`;
-
-        const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${process.env.AI_KEY}`,
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                model: "deepseek-chat",
-                messages: [
-                    {
-                        role: "system",
-                        content: systemPrompt
-                    },
-                    {
-                        role: "user",
-                        content: prompt
-                    }
-                ],
-                temperature: 0.3,
-                max_tokens: 500
-            })
-        });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-            return res.json({
-                success: false,
-                reply: data?.error?.message || "API error"
-            });
-        }
-
-        const reply = data?.choices?.[0]?.message?.content || "{}";
-
-        return res.json({
-            success: true,
-            reply,
-            tokensLeft: db[userId].tokens
-        });
-
-    } catch (err) {
-
-        console.log("AI ERROR:", err);
-
-        return res.json({
-            success: false,
-            reply: "Server error"
-        });
-    }
+// --------------------
+// 🔄 RELOAD TEMPLATES (DEV ONLY)
+// --------------------
+app.get("/reload-templates", (req, res) => {
+    TEMPLATES = loadTemplates();
+    res.json({
+        message: "Templates reloaded",
+        templates: Object.keys(TEMPLATES)
+    });
 });
 
-// ================= START SERVER =================
+// --------------------
+// 📦 GET TEMPLATE
+// --------------------
+app.get("/template/:name", (req, res) => {
+    const name = req.params.name;
+
+    if (!TEMPLATES[name]) {
+        return res.json({
+            success: false,
+            error: "Template not found"
+        });
+    }
+
+    res.json({
+        success: true,
+        template: TEMPLATES[name]
+    });
+});
+
+// --------------------
+// 🧪 TEST ROUTE
+// --------------------
+app.get("/", (req, res) => {
+    res.json({
+        status: "ScriptForge Template Engine Running",
+        templates: Object.keys(TEMPLATES)
+    });
+});
+
+// --------------------
+// 🚀 START SERVER
+// --------------------
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("ScriptForge V2 running on port", PORT);
+    console.log(`🚀 Server running on port ${PORT}`);
 });
