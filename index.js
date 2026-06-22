@@ -122,7 +122,7 @@ app.get("/check/:robloxId", (req, res) => {
 });
 
 
-// ================= AI (FULL FIXED VERSION) =================
+// ================= AI (FULL FIXED + ENGLISH LOCK) =================
 app.post("/ai", async (req, res) => {
 
     try {
@@ -150,7 +150,6 @@ app.post("/ai", async (req, res) => {
             });
         }
 
-        // deduct token
         db[userId].tokens -= 1;
         saveDB(db);
 
@@ -166,6 +165,10 @@ app.post("/ai", async (req, res) => {
                 model: "deepseek-chat",
                 messages: [
                     {
+                        role: "system",
+                        content: "You are ScriptForge AI. ALWAYS respond in English only. Never use Chinese or any other language. Give clean, useful answers for Roblox scripting."
+                    },
+                    {
                         role: "user",
                         content: prompt
                     }
@@ -177,11 +180,11 @@ app.post("/ai", async (req, res) => {
 
         const data = await response.json();
 
-        // ================= DEBUG LOGS =================
+        // ================= DEBUG =================
         console.log("STATUS:", response.status);
         console.log("AI RESPONSE:", JSON.stringify(data, null, 2));
 
-        // ================= ERROR HANDLING =================
+        // ================= ERROR CHECK =================
 
         if (!response.ok) {
             return res.json({
@@ -196,7 +199,7 @@ app.post("/ai", async (req, res) => {
         if (data?.choices?.[0]?.message?.content) {
             reply = data.choices[0].message.content;
         } else {
-            console.log("INVALID AI FORMAT:", data);
+            console.log("INVALID FORMAT:", data);
         }
 
         return res.json({
