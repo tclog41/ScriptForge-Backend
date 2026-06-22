@@ -11,7 +11,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "dependencies": {
+  "dependencies": {"express-rate-limit": "^7.0.0"
     "axios": "^1.18.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1"
