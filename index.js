@@ -1,70 +1,105 @@
 const express = require("express");
 const rateLimit = require("express-rate-limit");
+const fs = require("fs");
 
 const app = express();
 app.use(express.json());
 
-/* =========================
-   🔐 SECURITY KEY SYSTEM
-========================= */
+// =========================
+// 🌐 RENDER WEB SERVER FIX
+// =========================
+
+app.get("/", (req, res) => {
+    res.send("ScriptForge Backend Running 🤖");
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log("Server running on port", PORT);
+});
+
+// =========================
+// 🔐 SECURITY KEY (IMPORTANT)
+// =========================
 
 const API_KEY = process.env.API_KEY;
 
-/* Middleware: blocks all unapproved requests */
-function checkKey(req, res, next) {
-    const key = req.body.key || req.headers["x-api-key"];
-
-    if (!key || key !== API_KEY) {
-        return res.status(401).json({
-            success: false,
-            error: "Unauthorized"
-        });
-    }
-
-    next();
-}
-
-/* =========================
-   🚦 RATE LIMITING (COST PROTECTION)
-========================= */
+// =========================
+// 🚦 RATE LIMITING
+// =========================
 
 const limiter = rateLimit({
-    windowMs: 60 * 1000, // 1 minute
-    max: 10, // max requests per user per minute
-    message: "Too many requests, slow down"
+    windowMs: 60 * 1000,
+    max: 10,
+    message: "Too many requests"
 });
 
 app.use("/generate", limiter);
 
-/* =========================
-   🧠 SIMPLE MEMORY SYSTEM
-========================= */
+// =========================
+// 💾 PERSISTENT USER SYSTEM
+// =========================
 
-const memory = {};
+const MAX_USERS = 25;
 
-function saveMessage(userId, role, message) {
-    if (!memory[userId]) {
-        memory[userId] = [];
-    }
+let activeUsers = new Set();
 
-    memory[userId].push({ role, message });
-
-    // keep only last 5 messages (COST CONTROL)
-    if (memory[userId].length > 5) {
-        memory[userId].shift();
+// load users from file
+if (fs.existsSync("./users.json")) {
+    try {
+        const data = JSON.parse(fs.readFileSync("./users.json"));
+        activeUsers = new Set(data);
+    } catch (e) {
+        console.log("Failed to load users.json");
     }
 }
 
-/* =========================
-   📁 TEMPLATE SYSTEM
-========================= */
+// save users to file
+function saveUsers() {
+    fs.writeFileSync(
+        "./users.json",
+        JSON.stringify([...activeUsers])
+    );
+}
+
+function addUser(userId) {
+    if (activeUsers.size >= MAX_USERS) return false;
+
+    activeUsers.add(userId);
+    saveUsers();
+    return true;
+}
+
+// =========================
+// 🎟️ INVITE CODES
+// =========================
+
+const inviteCodes = {
+    "ALPHA-1": false,
+    "ALPHA-2": false,
+    "ALPHA-3": false,
+    "ALPHA-4": false,
+    "ALPHA-5": false
+};
+
+function useInviteCode(code, userId) {
+    if (!inviteCodes[code]) return false;
+    if (inviteCodes[code] === true) return false;
+
+    inviteCodes[code] = true;
+    return addUser(userId);
+}
+
+// =========================
+// 🧠 TEMPLATE SYSTEM
+// =========================
 
 function getTemplate(message) {
     message = message.toLowerCase();
 
     if (message.includes("sprint")) return "sprint";
     if (message.includes("door")) return "door";
-    if (message.includes("ui") || message.includes("hud")) return "ui";
+    if (message.includes("ui")) return "ui";
     if (message.includes("inventory")) return "inventory";
     if (message.includes("damage")) return "damage";
     if (message.includes("health")) return "health_ui";
@@ -72,19 +107,35 @@ function getTemplate(message) {
     return null;
 }
 
-/* Dummy templates (replace with your file system loader) */
 const TEMPLATES = {
-    sprint: "-- Sprint system code here",
-    door: "-- Door system code here",
-    ui: "-- UI system code here",
-    inventory: "-- Inventory system code here",
-    damage: "-- Damage system code here",
-    health_ui: "-- Health UI system code here"
+    sprint: "-- Sprint system script",
+    door: "-- Door system script",
+    ui: "-- UI system script",
+    inventory: "-- Inventory system script",
+    damage: "-- Damage system script",
+    health_ui: "-- Health UI script"
 };
 
-/* =========================
-   🤖 AI COST CONTROLLER
-========================= */
+// =========================
+// 🧠 MEMORY SYSTEM (LIMITED)
+// =========================
+
+const memory = {};
+
+function saveMessage(userId, role, message) {
+    if (!memory[userId]) memory[userId] = [];
+
+    memory[userId].push({ role, message });
+
+    // keep last 5 messages only (cost control)
+    if (memory[userId].length > 5) {
+        memory[userId].shift();
+    }
+}
+
+// =========================
+// 🤖 AI CONTROL (COST SAFE)
+// =========================
 
 const aiUsage = {};
 const AI_LIMIT = 3;
@@ -98,17 +149,30 @@ function canUseAI(userId) {
     return true;
 }
 
-/* =========================
-   🤖 AI FUNCTION (SAFE PLACEHOLDER)
-========================= */
-
 async function callAI(message, memoryData) {
-    return `-- AI RESPONSE (SAFE MODE)\n-- User: ${message}`;
+    return `-- AI GENERATED SCRIPT\n-- Input: ${message}`;
 }
 
-/* =========================
-   🚀 MAIN ROUTE
-========================= */
+// =========================
+// 🔐 OPTIONAL API KEY CHECK
+// =========================
+
+function checkKey(req, res, next) {
+    const key = req.body.key || req.headers["x-api-key"];
+
+    if (!key || key !== API_KEY) {
+        return res.status(401).json({
+            success: false,
+            error: "Unauthorized"
+        });
+    }
+
+    next();
+}
+
+// =========================
+// 🚀 MAIN GENERATE ROUTE
+// =========================
 
 app.post("/generate", checkKey, async (req, res) => {
     const { message, userId } = req.body;
@@ -116,29 +180,40 @@ app.post("/generate", checkKey, async (req, res) => {
     if (!message || !userId) {
         return res.json({
             success: false,
-            error: "Missing message or userId"
+            error: "Missing data"
         });
     }
 
     saveMessage(userId, "user", message);
 
-    const templateName = getTemplate(message);
+    // =========================
+    // 🟢 TEMPLATE FIRST (FREE)
+    // =========================
 
-    /* =========================
-       🟢 TEMPLATE FIRST (FREE)
-    ========================= */
+    const template = getTemplate(message);
 
-    if (templateName && TEMPLATES[templateName]) {
+    if (template && TEMPLATES[template]) {
         return res.json({
             success: true,
             source: "template",
-            script: TEMPLATES[templateName]
+            script: TEMPLATES[template]
         });
     }
 
-    /* =========================
-       🔴 AI FALLBACK (COST CONTROLLED)
-    ========================= */
+    // =========================
+    // 🔴 ACCESS CHECK
+    // =========================
+
+    if (!activeUsers.has(userId)) {
+        return res.json({
+            success: false,
+            error: "Not in Alpha"
+        });
+    }
+
+    // =========================
+    // 🤖 AI FALLBACK (LIMITED)
+    // =========================
 
     if (!canUseAI(userId)) {
         return res.json({
@@ -158,20 +233,28 @@ app.post("/generate", checkKey, async (req, res) => {
     });
 });
 
-/* =========================
-   🌐 HEALTH CHECK (RENDER FIX)
-========================= */
+// =========================
+// 🤖 DISCORD STYLE COMMAND HELPERS (OPTIONAL LOGIC ONLY)
+// =========================
 
-app.get("/", (req, res) => {
-    res.send("ScriptForge Secure Backend Running");
-});
+app.post("/redeem", checkKey, (req, res) => {
+    const { code, userId } = req.body;
 
-/* =========================
-   🚀 START SERVER
-========================= */
+    if (!code || !userId) {
+        return res.json({ success: false, error: "Missing data" });
+    }
 
-const PORT = process.env.PORT || 3000;
+    const success = useInviteCode(code, userId);
 
-app.listen(PORT, () => {
-    console.log("🚀 Server running on port", PORT);
+    if (success) {
+        return res.json({
+            success: true,
+            message: "Added to Alpha"
+        });
+    }
+
+    return res.json({
+        success: false,
+        error: "Invalid code"
+    });
 });
