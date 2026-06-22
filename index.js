@@ -6,7 +6,7 @@ const app = express();
 app.use(express.json());
 
 // --------------------
-// 📁 TEMPLATE LOADER
+// 📁 TEMPLATE SYSTEM
 // --------------------
 
 const templatesPath = path.join(__dirname, "templates");
@@ -14,9 +14,8 @@ const templatesPath = path.join(__dirname, "templates");
 function loadTemplates() {
     const templates = {};
 
-    // check folder exists
     if (!fs.existsSync(templatesPath)) {
-        console.log("Templates folder not found!");
+        console.log("❌ Templates folder missing");
         return templates;
     }
 
@@ -31,7 +30,7 @@ function loadTemplates() {
                 const template = JSON.parse(data);
                 templates[template.name] = template;
             } catch (err) {
-                console.log("Error loading template:", file, err.message);
+                console.log("Error loading template:", file);
             }
         }
     });
@@ -39,25 +38,80 @@ function loadTemplates() {
     return templates;
 }
 
-// Load templates into memory
 let TEMPLATES = loadTemplates();
 
 console.log("✅ Templates loaded:", Object.keys(TEMPLATES));
 
 // --------------------
-// 🔄 RELOAD TEMPLATES (DEV ONLY)
+// 🔍 TEMPLATE ROUTER
 // --------------------
-app.get("/reload-templates", (req, res) => {
-    TEMPLATES = loadTemplates();
+
+function getTemplateFromMessage(message) {
+    message = message.toLowerCase();
+
+    if (message.includes("sprint")) return "sprint";
+    if (message.includes("door")) return "door";
+    if (message.includes("ui")) return "ui";
+
+    return null;
+}
+
+// --------------------
+// ⚙️ TEMPLATE EXECUTOR
+// --------------------
+
+function executeTemplate(template) {
+    let code = template.code;
+
+    if (template.variables) {
+        Object.keys(template.variables).forEach(key => {
+            const regex = new RegExp(`{{${key}}}`, "g");
+            code = code.replace(regex, template.variables[key]);
+        });
+    }
+
+    return code;
+}
+
+// --------------------
+// 🌐 MAIN GENERATE ROUTE
+// --------------------
+
+app.post("/generate", (req, res) => {
+    const message = req.body.message;
+
+    if (!message) {
+        return res.json({
+            success: false,
+            error: "No message provided"
+        });
+    }
+
+    const templateName = getTemplateFromMessage(message);
+
+    if (!templateName || !TEMPLATES[templateName]) {
+        return res.json({
+            success: false,
+            source: "none",
+            message: "No template found (AI fallback not added yet)"
+        });
+    }
+
+    const template = TEMPLATES[templateName];
+    const output = executeTemplate(template);
+
     res.json({
-        message: "Templates reloaded",
-        templates: Object.keys(TEMPLATES)
+        success: true,
+        source: "template",
+        template: templateName,
+        script: output
     });
 });
 
 // --------------------
-// 📦 GET TEMPLATE
+// 📦 GET SINGLE TEMPLATE
 // --------------------
+
 app.get("/template/:name", (req, res) => {
     const name = req.params.name;
 
@@ -75,11 +129,26 @@ app.get("/template/:name", (req, res) => {
 });
 
 // --------------------
-// 🧪 TEST ROUTE
+// 🔄 RELOAD TEMPLATES
 // --------------------
+
+app.get("/reload-templates", (req, res) => {
+    TEMPLATES = loadTemplates();
+
+    res.json({
+        success: true,
+        message: "Templates reloaded",
+        templates: Object.keys(TEMPLATES)
+    });
+});
+
+// --------------------
+// 🧪 STATUS ROUTE
+// --------------------
+
 app.get("/", (req, res) => {
     res.json({
-        status: "ScriptForge Template Engine Running",
+        status: "ScriptForge Backend Online",
         templates: Object.keys(TEMPLATES)
     });
 });
@@ -87,6 +156,7 @@ app.get("/", (req, res) => {
 // --------------------
 // 🚀 START SERVER
 // --------------------
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
