@@ -48,6 +48,7 @@ app.get("/", (req, res) => {
 // ================= CREATE LINK =================
 app.post("/create-link", (req, res) => {
     try {
+
         const db = loadDB();
 
         const discordId = String(req.body?.discordId || "");
@@ -121,7 +122,7 @@ app.get("/check/:robloxId", (req, res) => {
 });
 
 
-// ================= AI (FIXED + REAL) =================
+// ================= AI (FULL FIXED VERSION) =================
 app.post("/ai", async (req, res) => {
 
     try {
@@ -133,28 +134,28 @@ app.post("/ai", async (req, res) => {
 
         if (!userId || !prompt) {
             return res.json({
+                success: false,
                 reply: "Missing userId or prompt",
-                tokensLeft: 0,
-                success: false
+                tokensLeft: 0
             });
         }
 
-        // ALWAYS ensure user exists (fixes AI not connected bug)
         ensureUser(db, userId);
 
         if (db[userId].tokens <= 0) {
             return res.json({
+                success: false,
                 reply: "❌ No tokens left",
-                tokensLeft: 0,
-                success: false
+                tokensLeft: 0
             });
         }
 
-        // remove token
+        // deduct token
         db[userId].tokens -= 1;
         saveDB(db);
 
-        // ================= REAL AI CALL =================
+        // ================= DEEPSEEK REQUEST =================
+
         const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -168,30 +169,50 @@ app.post("/ai", async (req, res) => {
                         role: "user",
                         content: prompt
                     }
-                ]
+                ],
+                temperature: 0.7,
+                max_tokens: 500
             })
         });
 
         const data = await response.json();
 
-        const reply =
-            data?.choices?.[0]?.message?.content ||
-            "AI error: no response from model";
+        // ================= DEBUG LOGS =================
+        console.log("STATUS:", response.status);
+        console.log("AI RESPONSE:", JSON.stringify(data, null, 2));
+
+        // ================= ERROR HANDLING =================
+
+        if (!response.ok) {
+            return res.json({
+                success: false,
+                reply: "DeepSeek error: " + (data?.error?.message || "Unknown error"),
+                tokensLeft: db[userId].tokens
+            });
+        }
+
+        let reply = "AI error: no response from model";
+
+        if (data?.choices?.[0]?.message?.content) {
+            reply = data.choices[0].message.content;
+        } else {
+            console.log("INVALID AI FORMAT:", data);
+        }
 
         return res.json({
+            success: true,
             reply: reply,
-            tokensLeft: db[userId].tokens,
-            success: true
+            tokensLeft: db[userId].tokens
         });
 
     } catch (err) {
 
-        console.log("AI ERROR:", err);
+        console.log("AI ROUTE ERROR:", err);
 
         return res.json({
-            reply: "AI not connected (backend error)",
-            tokensLeft: 0,
-            success: false
+            success: false,
+            reply: "AI not connected (server error)",
+            tokensLeft: 0
         });
     }
 });
