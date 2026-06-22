@@ -1,19 +1,16 @@
 {
-  "name": "scriptforge",
+  "name": "scriptforge-backend",
   "version": "1.0.0",
-  "type": "commonjs",
-  "description": "",
+  "description": "ScriptForge AI backend",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {"express-rate-limit": "^7.0.0"
-    "axios": "^1.18.0",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1"
+  "dependencies": {
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.0.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
