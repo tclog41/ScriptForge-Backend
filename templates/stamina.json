@@ -1,0 +1,9 @@
+{
+  "name": "stamina",
+  "type": "mechanics",
+  "variables": {
+    "maxStamina": 100,
+    "regenRate": 5
+  },
+  "code": "-- Stamina System\nlocal maxStamina = {{maxStamina}}\nlocal regenRate = {{regenRate}}\n\nprint('Stamina system loaded')"
+}

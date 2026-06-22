@@ -1,0 +1,9 @@
+{
+	"name": "crouch",
+	"type": "movement",
+	"variables": {
+		"crouchSpeed": 8,
+		"keybind": "LeftControl"
+	},
+	"code": "-- Crouch System\nlocal crouchSpeed = {{crouchSpeed}}\nlocal keybind = '{{keybind}}'\n\nprint('Crouch system loaded')"
+}

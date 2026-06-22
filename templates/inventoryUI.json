@@ -1,0 +1,8 @@
+{
+	"name": "inventory",
+	"type": "ui",
+	"variables": {
+		"slots": 20
+	},
+	"code": "-- Inventory System\nlocal slots = {{slots}}\n\nprint('Inventory loaded')"
+}

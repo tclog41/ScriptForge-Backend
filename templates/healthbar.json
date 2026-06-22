@@ -1,0 +1,8 @@
+{
+  "name": "health_ui",
+  "type": "ui",
+  "variables": {
+    "maxHealth": 100
+  },
+  "code": "-- Health UI System\nlocal maxHealth = {{maxHealth}}\n\nprint('Health UI loaded')"
+}

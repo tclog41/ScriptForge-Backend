@@ -1,0 +1,8 @@
+{
+  "name": "checkpoint",
+  "type": "progression",
+  "variables": {
+    "saveOnTouch": true
+  },
+  "code": "-- Checkpoint System\nlocal saveOnTouch = {{saveOnTouch}}\n\nprint('Checkpoint system loaded')"
+}

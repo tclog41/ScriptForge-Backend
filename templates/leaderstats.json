@@ -1,0 +1,8 @@
+{
+  "name": "leaderstats",
+  "type": "progression",
+  "variables": {
+    "currencyName": "Coins"
+  },
+  "code": "-- Leaderstats System\nlocal currencyName = '{{currencyName}}'\n\nprint('Leaderstats loaded')"
+}
