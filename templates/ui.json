@@ -1,0 +1,8 @@
+{
+  "name": "ui",
+  "type": "interface",
+  "variables": {
+    "title": "Hello UI"
+  },
+  "code": "-- UI System\nlocal title = '{{title}}'\n\nprint(title)"
+}
