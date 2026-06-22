@@ -1,73 +1,50 @@
 const express = require("express");
-const rateLimit = require("express-rate-limit");
 const fs = require("fs");
+const rateLimit = require("express-rate-limit");
 
 const app = express();
 app.use(express.json());
 
 // =========================
-// 🌐 RENDER WEB SERVER FIX
+// 🌐 SERVER
 // =========================
 
+const PORT = process.env.PORT || 3000;
+
 app.get("/", (req, res) => {
-    res.send("ScriptForge Backend Running 🤖");
+    res.send("ScriptForge Backend Running 🚀");
 });
 
-const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log("Server running on port", PORT);
 });
 
 // =========================
-// 🔐 SECURITY KEY (IMPORTANT)
+// 🔐 CONFIG
 // =========================
 
 const API_KEY = process.env.API_KEY;
 
-// =========================
-// 🚦 RATE LIMITING
-// =========================
-
-const limiter = rateLimit({
-    windowMs: 60 * 1000,
-    max: 10,
-    message: "Too many requests"
-});
-
-app.use("/generate", limiter);
+// 👇 PUT YOUR USER ID HERE (ADMIN FOREVER ACCESS)
+const ADMIN_ID = "YOUR_DISCORD_OR_ROBLOX_USER_ID";
 
 // =========================
-// 💾 PERSISTENT USER SYSTEM
+// 💾 MEMORY STORE
 // =========================
 
-const MAX_USERS = 25;
+let users = {};
 
-let activeUsers = new Set();
-
-// load users from file
+// load saved users
 if (fs.existsSync("./users.json")) {
     try {
-        const data = JSON.parse(fs.readFileSync("./users.json"));
-        activeUsers = new Set(data);
+        users = JSON.parse(fs.readFileSync("./users.json"));
     } catch (e) {
         console.log("Failed to load users.json");
     }
 }
 
-// save users to file
 function saveUsers() {
-    fs.writeFileSync(
-        "./users.json",
-        JSON.stringify([...activeUsers])
-    );
-}
-
-function addUser(userId) {
-    if (activeUsers.size >= MAX_USERS) return false;
-
-    activeUsers.add(userId);
-    saveUsers();
-    return true;
+    fs.writeFileSync("./users.json", JSON.stringify(users, null, 2));
 }
 
 // =========================
@@ -82,179 +59,156 @@ const inviteCodes = {
     "ALPHA-5": false
 };
 
-function useInviteCode(code, userId) {
+function redeemCode(code, userId) {
     if (!inviteCodes[code]) return false;
     if (inviteCodes[code] === true) return false;
 
     inviteCodes[code] = true;
-    return addUser(userId);
-}
 
-// =========================
-// 🧠 TEMPLATE SYSTEM
-// =========================
+    users[userId] = {
+        role: "user",
+        expiresAt: Date.now() + 12 * 60 * 60 * 1000, // 12 hours
+        aiUses: 0
+    };
 
-function getTemplate(message) {
-    message = message.toLowerCase();
-
-    if (message.includes("sprint")) return "sprint";
-    if (message.includes("door")) return "door";
-    if (message.includes("ui")) return "ui";
-    if (message.includes("inventory")) return "inventory";
-    if (message.includes("damage")) return "damage";
-    if (message.includes("health")) return "health_ui";
-
-    return null;
-}
-
-const TEMPLATES = {
-    sprint: "-- Sprint system script",
-    door: "-- Door system script",
-    ui: "-- UI system script",
-    inventory: "-- Inventory system script",
-    damage: "-- Damage system script",
-    health_ui: "-- Health UI script"
-};
-
-// =========================
-// 🧠 MEMORY SYSTEM (LIMITED)
-// =========================
-
-const memory = {};
-
-function saveMessage(userId, role, message) {
-    if (!memory[userId]) memory[userId] = [];
-
-    memory[userId].push({ role, message });
-
-    // keep last 5 messages only (cost control)
-    if (memory[userId].length > 5) {
-        memory[userId].shift();
-    }
-}
-
-// =========================
-// 🤖 AI CONTROL (COST SAFE)
-// =========================
-
-const aiUsage = {};
-const AI_LIMIT = 3;
-
-function canUseAI(userId) {
-    if (!aiUsage[userId]) aiUsage[userId] = 0;
-
-    if (aiUsage[userId] >= AI_LIMIT) return false;
-
-    aiUsage[userId]++;
+    saveUsers();
     return true;
 }
 
-async function callAI(message, memoryData) {
-    return `-- AI GENERATED SCRIPT\n-- Input: ${message}`;
+// =========================
+// 🔐 ACCESS CHECK
+// =========================
+
+function hasAccess(userId) {
+    if (userId === ADMIN_ID) return true;
+
+    const user = users[userId];
+    if (!user) return false;
+
+    return Date.now() < user.expiresAt;
 }
 
 // =========================
-// 🔐 OPTIONAL API KEY CHECK
+// 🤖 AI USAGE LIMIT (10 USES)
 // =========================
 
-function checkKey(req, res, next) {
-    const key = req.body.key || req.headers["x-api-key"];
+function canUseAI(userId) {
+    if (userId === ADMIN_ID) return true;
+
+    const user = users[userId];
+    if (!user) return false;
+
+    if (user.aiUses >= 10) return false;
+
+    user.aiUses++;
+    saveUsers();
+    return true;
+}
+
+// =========================
+// 🚦 RATE LIMIT (anti spam)
+// =========================
+
+app.use(rateLimit({
+    windowMs: 60 * 1000,
+    max: 10
+}));
+
+// =========================
+// 🔐 MIDDLEWARE
+// =========================
+
+function auth(req, res, next) {
+    const key = req.body.key;
 
     if (!key || key !== API_KEY) {
-        return res.status(401).json({
-            success: false,
-            error: "Unauthorized"
-        });
+        return res.status(401).json({ error: "Unauthorized" });
     }
 
     next();
 }
 
 // =========================
-// 🚀 MAIN GENERATE ROUTE
+// 🎟️ REDEEM ROUTE
 // =========================
 
-app.post("/generate", checkKey, async (req, res) => {
+app.post("/redeem", auth, (req, res) => {
+    const { code, userId } = req.body;
+
+    if (!code || !userId) {
+        return res.json({ error: "Missing data" });
+    }
+
+    const ok = redeemCode(code, userId);
+
+    if (!ok) {
+        return res.json({ error: "Invalid code" });
+    }
+
+    res.json({ success: true, message: "Access granted" });
+});
+
+// =========================
+// 🤖 GENERATE ROUTE
+// =========================
+
+app.post("/generate", auth, async (req, res) => {
     const { message, userId } = req.body;
 
     if (!message || !userId) {
+        return res.json({ error: "Missing data" });
+    }
+
+    // -------------------------
+    // 🔐 ACCESS CHECK
+    // -------------------------
+
+    if (!hasAccess(userId)) {
         return res.json({
             success: false,
-            error: "Missing data"
+            error: "You are not in ScriptForge Alpha."
         });
     }
 
-    saveMessage(userId, "user", message);
-
-    // =========================
-    // 🟢 TEMPLATE FIRST (FREE)
-    // =========================
-
-    const template = getTemplate(message);
-
-    if (template && TEMPLATES[template]) {
-        return res.json({
-            success: true,
-            source: "template",
-            script: TEMPLATES[template]
-        });
-    }
-
-    // =========================
-    // 🔴 ACCESS CHECK
-    // =========================
-
-    if (!activeUsers.has(userId)) {
-        return res.json({
-            success: false,
-            error: "Not in Alpha"
-        });
-    }
-
-    // =========================
-    // 🤖 AI FALLBACK (LIMITED)
-    // =========================
+    // -------------------------
+    // 🤖 AI LIMIT CHECK
+    // -------------------------
 
     if (!canUseAI(userId)) {
         return res.json({
             success: false,
-            error: "AI limit reached"
+            error: "AI limit reached (10 uses)."
         });
     }
 
-    const aiResult = await callAI(message, memory[userId] || []);
+    // -------------------------
+    // 🧠 TEMPLATE SYSTEM (FAST + FREE)
+    // -------------------------
 
-    saveMessage(userId, "assistant", aiResult);
+    const lower = message.toLowerCase();
+
+    let script = null;
+
+    if (lower.includes("sprint")) {
+        script = "-- Sprint system\nlocal speed = 32";
+    }
+    else if (lower.includes("door")) {
+        script = "-- Door system\nprint('Door ready')";
+    }
+    else if (lower.includes("ui")) {
+        script = "-- UI system\nprint('UI created')";
+    }
+
+    // -------------------------
+    // 🤖 AI FALLBACK
+    // -------------------------
+
+    if (!script) {
+        script = `-- AI GENERATED LUA SCRIPT\n-- ${message}`;
+    }
 
     return res.json({
         success: true,
-        source: "ai",
-        script: aiResult
-    });
-});
-
-// =========================
-// 🤖 DISCORD STYLE COMMAND HELPERS (OPTIONAL LOGIC ONLY)
-// =========================
-
-app.post("/redeem", checkKey, (req, res) => {
-    const { code, userId } = req.body;
-
-    if (!code || !userId) {
-        return res.json({ success: false, error: "Missing data" });
-    }
-
-    const success = useInviteCode(code, userId);
-
-    if (success) {
-        return res.json({
-            success: true,
-            message: "Added to Alpha"
-        });
-    }
-
-    return res.json({
-        success: false,
-        error: "Invalid code"
+        script
     });
 });
