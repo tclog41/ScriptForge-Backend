@@ -1,216 +1,117 @@
 const express = require("express");
-const fs = require("fs");
-const path = require("path");
+const rateLimit = require("express-rate-limit");
 
 const app = express();
 app.use(express.json());
 
 /* =========================
-   🧠 MEMORY SYSTEM
+   🔐 SECURITY KEY SYSTEM
 ========================= */
 
-const userMemory = {};
+const API_KEY = process.env.API_KEY;
+
+/* Middleware: blocks all unapproved requests */
+function checkKey(req, res, next) {
+    const key = req.body.key || req.headers["x-api-key"];
+
+    if (!key || key !== API_KEY) {
+        return res.status(401).json({
+            success: false,
+            error: "Unauthorized"
+        });
+    }
+
+    next();
+}
+
+/* =========================
+   🚦 RATE LIMITING (COST PROTECTION)
+========================= */
+
+const limiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 10, // max requests per user per minute
+    message: "Too many requests, slow down"
+});
+
+app.use("/generate", limiter);
+
+/* =========================
+   🧠 SIMPLE MEMORY SYSTEM
+========================= */
+
+const memory = {};
 
 function saveMessage(userId, role, message) {
-    if (!userMemory[userId]) {
-        userMemory[userId] = {
-            messages: [],
-            createdAt: Date.now()
-        };
+    if (!memory[userId]) {
+        memory[userId] = [];
     }
 
-    userMemory[userId].messages.push({
-        role,
-        message,
-        time: Date.now()
-    });
+    memory[userId].push({ role, message });
 
-    // limit memory (cost control)
-    if (userMemory[userId].messages.length > 30) {
-        userMemory[userId].messages.shift();
+    // keep only last 5 messages (COST CONTROL)
+    if (memory[userId].length > 5) {
+        memory[userId].shift();
     }
 }
-
-function getMemory(userId) {
-    if (!userMemory[userId]) return [];
-
-    return userMemory[userId].messages.map(m => ({
-        role: m.role,
-        content: m.message
-    }));
-}
-
-// auto delete memory after 24h
-function cleanupMemory() {
-    const now = Date.now();
-
-    Object.keys(userMemory).forEach(userId => {
-        const data = userMemory[userId];
-
-        if (now - data.createdAt > 24 * 60 * 60 * 1000) {
-            delete userMemory[userId];
-        }
-    });
-}
-
-setInterval(cleanupMemory, 10 * 60 * 1000);
 
 /* =========================
    📁 TEMPLATE SYSTEM
 ========================= */
 
-const templatesPath = path.join(__dirname, "templates");
-
-function loadTemplates() {
-    const templates = {};
-
-    if (!fs.existsSync(templatesPath)) {
-        console.log("❌ Templates folder missing");
-        return templates;
-    }
-
-    const files = fs.readdirSync(templatesPath);
-
-    files.forEach(file => {
-        if (file.endsWith(".json")) {
-            const filePath = path.join(templatesPath, file);
-            const data = fs.readFileSync(filePath, "utf-8");
-
-            try {
-                const template = JSON.parse(data);
-                templates[template.name] = template;
-            } catch (err) {
-                console.log("Error loading template:", file);
-            }
-        }
-    });
-
-    return templates;
-}
-
-let TEMPLATES = loadTemplates();
-
-console.log("✅ Templates loaded:", Object.keys(TEMPLATES));
-
-/* =========================
-   🧠 SMART INTENT ROUTER (v2)
-========================= */
-
-function getTemplateFromMessage(message) {
+function getTemplate(message) {
     message = message.toLowerCase();
 
-    const scores = {
-        sprint: 0,
-        door: 0,
-        ui: 0,
-        crouch: 0,
-        pickup: 0,
-        damage: 0,
-        inventory: 0,
-        checkpoint: 0,
-        leaderstats: 0,
-        stamina: 0
-    };
+    if (message.includes("sprint")) return "sprint";
+    if (message.includes("door")) return "door";
+    if (message.includes("ui") || message.includes("hud")) return "ui";
+    if (message.includes("inventory")) return "inventory";
+    if (message.includes("damage")) return "damage";
+    if (message.includes("health")) return "health_ui";
 
-    // ------------------------
-    // 🧠 SCORING SYSTEM
-    // ------------------------
+    return null;
+}
 
-    if (message.includes("run") || message.includes("sprint") || message.includes("fast")) {
-        scores.sprint += 3;
-    }
+/* Dummy templates (replace with your file system loader) */
+const TEMPLATES = {
+    sprint: "-- Sprint system code here",
+    door: "-- Door system code here",
+    ui: "-- UI system code here",
+    inventory: "-- Inventory system code here",
+    damage: "-- Damage system code here",
+    health_ui: "-- Health UI system code here"
+};
 
-    if (message.includes("door") || message.includes("open")) {
-        scores.door += 3;
-    }
+/* =========================
+   🤖 AI COST CONTROLLER
+========================= */
 
-    if (message.includes("ui") || message.includes("hud") || message.includes("interface")) {
-        scores.ui += 3;
-    }
+const aiUsage = {};
+const AI_LIMIT = 3;
 
-    if (message.includes("crouch") || message.includes("duck")) {
-        scores.crouch += 3;
-    }
+function canUseAI(userId) {
+    if (!aiUsage[userId]) aiUsage[userId] = 0;
 
-    if (message.includes("pickup") || message.includes("item") || message.includes("grab")) {
-        scores.pickup += 3;
-    }
+    if (aiUsage[userId] >= AI_LIMIT) return false;
 
-    if (message.includes("damage") || message.includes("combat") || message.includes("hit")) {
-        scores.damage += 3;
-    }
-
-    if (message.includes("inventory") || message.includes("bag")) {
-        scores.inventory += 3;
-    }
-
-    if (message.includes("checkpoint") || message.includes("save")) {
-        scores.checkpoint += 3;
-    }
-
-    if (message.includes("leaderstats") || message.includes("coins") || message.includes("money")) {
-        scores.leaderstats += 3;
-    }
-
-    if (message.includes("stamina") || message.includes("energy")) {
-        scores.stamina += 3;
-    }
-
-    // ------------------------
-    // 🧠 PICK BEST MATCH
-    // ------------------------
-
-    let bestMatch = null;
-    let bestScore = 0;
-
-    for (const key in scores) {
-        if (scores[key] > bestScore) {
-            bestScore = scores[key];
-            bestMatch = key;
-        }
-    }
-
-    if (bestScore === 0) return null;
-
-    return bestMatch;
+    aiUsage[userId]++;
+    return true;
 }
 
 /* =========================
-   ⚙️ TEMPLATE EXECUTOR
+   🤖 AI FUNCTION (SAFE PLACEHOLDER)
 ========================= */
 
-function executeTemplate(template) {
-    let code = template.code;
-
-    if (template.variables) {
-        Object.keys(template.variables).forEach(key => {
-            const regex = new RegExp(`{{${key}}}`, "g");
-            code = code.replace(regex, template.variables[key]);
-        });
-    }
-
-    return code;
+async function callAI(message, memoryData) {
+    return `-- AI RESPONSE (SAFE MODE)\n-- User: ${message}`;
 }
 
 /* =========================
-   🤖 AI FUNCTION (PLACEHOLDER)
+   🚀 MAIN ROUTE
 ========================= */
 
-async function callAI({ message, memory }) {
-    const context = memory
-        .map(m => `${m.role}: ${m.content}`)
-        .join("\n");
-
-    return `-- AI RESPONSE\n-- CONTEXT:\n${context}\n\n-- USER: ${message}`;
-}
-
-/* =========================
-   🚀 HYBRID GENERATE ROUTE
-========================= */
-
-app.post("/generate", async (req, res) => {
-    const message = req.body.message;
-    const userId = req.body.userId;
+app.post("/generate", checkKey, async (req, res) => {
+    const { message, userId } = req.body;
 
     if (!message || !userId) {
         return res.json({
@@ -219,38 +120,34 @@ app.post("/generate", async (req, res) => {
         });
     }
 
-    // --------------------
-    // 🧠 SAVE USER MESSAGE
-    // --------------------
     saveMessage(userId, "user", message);
 
-    const memory = getMemory(userId);
+    const templateName = getTemplate(message);
 
-    // --------------------
-    // 🥇 TEMPLATE FIRST (SMART ROUTER)
-    // --------------------
-    const templateName = getTemplateFromMessage(message);
+    /* =========================
+       🟢 TEMPLATE FIRST (FREE)
+    ========================= */
 
     if (templateName && TEMPLATES[templateName]) {
-
-        const template = TEMPLATES[templateName];
-        const script = executeTemplate(template);
-
-        saveMessage(userId, "assistant", script);
-
         return res.json({
             success: true,
             source: "template",
-            template: templateName,
-            script
+            script: TEMPLATES[templateName]
         });
     }
 
-    // --------------------
-    // 🤖 AI FALLBACK
-    // --------------------
+    /* =========================
+       🔴 AI FALLBACK (COST CONTROLLED)
+    ========================= */
 
-    const aiResult = await callAI({ message, memory });
+    if (!canUseAI(userId)) {
+        return res.json({
+            success: false,
+            error: "AI limit reached"
+        });
+    }
+
+    const aiResult = await callAI(message, memory[userId] || []);
 
     saveMessage(userId, "assistant", aiResult);
 
@@ -262,44 +159,11 @@ app.post("/generate", async (req, res) => {
 });
 
 /* =========================
-   📦 TEMPLATE ROUTES
-========================= */
-
-app.get("/template/:name", (req, res) => {
-    const name = req.params.name;
-
-    if (!TEMPLATES[name]) {
-        return res.json({
-            success: false,
-            error: "Template not found"
-        });
-    }
-
-    res.json({
-        success: true,
-        template: TEMPLATES[name]
-    });
-});
-
-app.get("/reload-templates", (req, res) => {
-    TEMPLATES = loadTemplates();
-
-    res.json({
-        success: true,
-        templates: Object.keys(TEMPLATES)
-    });
-});
-
-/* =========================
-   🧪 STATUS
+   🌐 HEALTH CHECK (RENDER FIX)
 ========================= */
 
 app.get("/", (req, res) => {
-    res.json({
-        status: "ScriptForge v2 ONLINE (Hybrid + Memory + Smart Routing)",
-        templates: Object.keys(TEMPLATES),
-        users: Object.keys(userMemory).length
-    });
+    res.send("ScriptForge Secure Backend Running");
 });
 
 /* =========================
@@ -309,5 +173,5 @@ app.get("/", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log(`🚀 ScriptForge v2 running on port ${PORT}`);
+    console.log("🚀 Server running on port", PORT);
 });
