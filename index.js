@@ -5,9 +5,59 @@ const path = require("path");
 const app = express();
 app.use(express.json());
 
-// --------------------
-// 📁 TEMPLATE SYSTEM
-// --------------------
+/* =========================
+   🧠 MEMORY SYSTEM
+========================= */
+
+const userMemory = {};
+
+function saveMessage(userId, role, message) {
+    if (!userMemory[userId]) {
+        userMemory[userId] = {
+            messages: [],
+            createdAt: Date.now()
+        };
+    }
+
+    userMemory[userId].messages.push({
+        role,
+        message,
+        time: Date.now()
+    });
+
+    // limit memory size (cost saver)
+    if (userMemory[userId].messages.length > 30) {
+        userMemory[userId].messages.shift();
+    }
+}
+
+function getMemory(userId) {
+    if (!userMemory[userId]) return [];
+
+    return userMemory[userId].messages.map(m => ({
+        role: m.role,
+        content: m.message
+    }));
+}
+
+// auto delete memory after 24h
+function cleanupMemory() {
+    const now = Date.now();
+
+    Object.keys(userMemory).forEach(userId => {
+        const data = userMemory[userId];
+
+        if (now - data.createdAt > 24 * 60 * 60 * 1000) {
+            delete userMemory[userId];
+        }
+    });
+}
+
+setInterval(cleanupMemory, 10 * 60 * 1000);
+
+/* =========================
+   📁 TEMPLATE SYSTEM
+========================= */
 
 const templatesPath = path.join(__dirname, "templates");
 
@@ -42,9 +92,9 @@ let TEMPLATES = loadTemplates();
 
 console.log("✅ Templates loaded:", Object.keys(TEMPLATES));
 
-// --------------------
-// 🔍 TEMPLATE ROUTER
-// --------------------
+/* =========================
+   🔍 TEMPLATE ROUTER
+========================= */
 
 function getTemplateFromMessage(message) {
     message = message.toLowerCase();
@@ -56,9 +106,9 @@ function getTemplateFromMessage(message) {
     return null;
 }
 
-// --------------------
-// ⚙️ TEMPLATE EXECUTOR
-// --------------------
+/* =========================
+   ⚙️ TEMPLATE EXECUTOR
+========================= */
 
 function executeTemplate(template) {
     let code = template.code;
@@ -73,67 +123,70 @@ function executeTemplate(template) {
     return code;
 }
 
-// --------------------
-// 🤖 AI FUNCTION (PLACEHOLDER)
-// --------------------
+/* =========================
+   🤖 AI FUNCTION (PLACEHOLDER)
+========================= */
 
-// This is where your DeepSeek/OpenAI call goes
-async function callAI(message) {
-    // Replace this with real API call later
-    return `-- AI GENERATED SCRIPT\n-- User request: ${message}`;
+async function callAI({ message, memory }) {
+    const context = memory
+        .map(m => `${m.role}: ${m.content}`)
+        .join("\n");
+
+    // Replace with DeepSeek/OpenAI later
+    return `-- AI RESPONSE\n-- CONTEXT:\n${context}\n\n-- USER: ${message}`;
 }
 
-// --------------------
-// 🚀 HYBRID GENERATE ROUTE
-// --------------------
+/* =========================
+   🚀 MAIN GENERATE ROUTE (HYBRID SYSTEM)
+========================= */
 
 app.post("/generate", async (req, res) => {
     const message = req.body.message;
+    const userId = req.body.userId;
 
-    if (!message) {
+    if (!message || !userId) {
         return res.json({
             success: false,
-            error: "No message provided"
+            error: "Missing message or userId"
         });
     }
 
     // --------------------
-    // 🥇 STEP 1: TEMPLATE CHECK
+    // 🧠 SAVE USER MESSAGE
+    // --------------------
+    saveMessage(userId, "user", message);
+
+    // --------------------
+    // 🧠 GET MEMORY
+    // --------------------
+    const memory = getMemory(userId);
+
+    // --------------------
+    // 🥇 TEMPLATE FIRST
     // --------------------
     const templateName = getTemplateFromMessage(message);
 
     if (templateName && TEMPLATES[templateName]) {
 
         const template = TEMPLATES[templateName];
+        const script = executeTemplate(template);
 
-        let script = executeTemplate(template);
-
-        // --------------------
-        // 🥈 OPTIONAL AI ENHANCEMENT (LOW COST MODE)
-        // --------------------
-        const enhanced = false; // set true later if you want AI upgrade
-
-        if (enhanced) {
-            const aiAdd = await callAI(
-                `Improve this Roblox script without changing core logic:\n${script}`
-            );
-
-            script += "\n\n-- AI Enhancement:\n" + aiAdd;
-        }
+        saveMessage(userId, "assistant", script);
 
         return res.json({
             success: true,
             source: "template",
-            template: templateName,
-            script: script
+            script
         });
     }
 
     // --------------------
-    // 🥈 STEP 2: AI FALLBACK (NO TEMPLATE FOUND)
+    // 🤖 AI FALLBACK
     // --------------------
 
-    const aiResult = await callAI(message);
+    const aiResult = await callAI({ message, memory });
+
+    saveMessage(userId, "assistant", aiResult);
 
     return res.json({
         success: true,
@@ -142,9 +195,9 @@ app.post("/generate", async (req, res) => {
     });
 });
 
-// --------------------
-// 📦 GET TEMPLATE
-// --------------------
+/* =========================
+   📦 TEMPLATE ROUTES
+========================= */
 
 app.get("/template/:name", (req, res) => {
     const name = req.params.name;
@@ -162,37 +215,33 @@ app.get("/template/:name", (req, res) => {
     });
 });
 
-// --------------------
-// 🔄 RELOAD TEMPLATES
-// --------------------
-
 app.get("/reload-templates", (req, res) => {
     TEMPLATES = loadTemplates();
 
     res.json({
         success: true,
-        message: "Templates reloaded",
         templates: Object.keys(TEMPLATES)
     });
 });
 
-// --------------------
-// 🧪 STATUS
-// --------------------
+/* =========================
+   🧪 STATUS ROUTE
+========================= */
 
 app.get("/", (req, res) => {
     res.json({
-        status: "ScriptForge Hybrid AI Online",
-        templates: Object.keys(TEMPLATES)
+        status: "ScriptForge FULL SYSTEM ONLINE",
+        templates: Object.keys(TEMPLATES),
+        users: Object.keys(userMemory).length
     });
 });
 
-// --------------------
-// 🚀 START SERVER
-// --------------------
+/* =========================
+   🚀 START SERVER
+========================= */
 
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`🚀 ScriptForge running on port ${PORT}`);
 });
