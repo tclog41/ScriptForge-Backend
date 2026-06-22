@@ -74,10 +74,20 @@ function executeTemplate(template) {
 }
 
 // --------------------
-// 🌐 MAIN GENERATE ROUTE
+// 🤖 AI FUNCTION (PLACEHOLDER)
 // --------------------
 
-app.post("/generate", (req, res) => {
+// This is where your DeepSeek/OpenAI call goes
+async function callAI(message) {
+    // Replace this with real API call later
+    return `-- AI GENERATED SCRIPT\n-- User request: ${message}`;
+}
+
+// --------------------
+// 🚀 HYBRID GENERATE ROUTE
+// --------------------
+
+app.post("/generate", async (req, res) => {
     const message = req.body.message;
 
     if (!message) {
@@ -87,29 +97,53 @@ app.post("/generate", (req, res) => {
         });
     }
 
+    // --------------------
+    // 🥇 STEP 1: TEMPLATE CHECK
+    // --------------------
     const templateName = getTemplateFromMessage(message);
 
-    if (!templateName || !TEMPLATES[templateName]) {
+    if (templateName && TEMPLATES[templateName]) {
+
+        const template = TEMPLATES[templateName];
+
+        let script = executeTemplate(template);
+
+        // --------------------
+        // 🥈 OPTIONAL AI ENHANCEMENT (LOW COST MODE)
+        // --------------------
+        const enhanced = false; // set true later if you want AI upgrade
+
+        if (enhanced) {
+            const aiAdd = await callAI(
+                `Improve this Roblox script without changing core logic:\n${script}`
+            );
+
+            script += "\n\n-- AI Enhancement:\n" + aiAdd;
+        }
+
         return res.json({
-            success: false,
-            source: "none",
-            message: "No template found (AI fallback not added yet)"
+            success: true,
+            source: "template",
+            template: templateName,
+            script: script
         });
     }
 
-    const template = TEMPLATES[templateName];
-    const output = executeTemplate(template);
+    // --------------------
+    // 🥈 STEP 2: AI FALLBACK (NO TEMPLATE FOUND)
+    // --------------------
 
-    res.json({
+    const aiResult = await callAI(message);
+
+    return res.json({
         success: true,
-        source: "template",
-        template: templateName,
-        script: output
+        source: "ai",
+        script: aiResult
     });
 });
 
 // --------------------
-// 📦 GET SINGLE TEMPLATE
+// 📦 GET TEMPLATE
 // --------------------
 
 app.get("/template/:name", (req, res) => {
@@ -143,12 +177,12 @@ app.get("/reload-templates", (req, res) => {
 });
 
 // --------------------
-// 🧪 STATUS ROUTE
+// 🧪 STATUS
 // --------------------
 
 app.get("/", (req, res) => {
     res.json({
-        status: "ScriptForge Backend Online",
+        status: "ScriptForge Hybrid AI Online",
         templates: Object.keys(TEMPLATES)
     });
 });
