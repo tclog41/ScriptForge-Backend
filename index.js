@@ -11,8 +11,6 @@ const PORT = process.env.PORT || 3000;
 // =========================
 
 const API_KEY = process.env.API_KEY;
-const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
-const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 
 // =========================
 // STORAGE
@@ -41,15 +39,15 @@ function saveCodes() {
 // USER SYSTEM
 // =========================
 
-function getUser(id) {
-    if (!users[id]) {
-        users[id] = {
+function getUser(deviceId) {
+    if (!users[deviceId]) {
+        users[deviceId] = {
             expiresAt: 0,
-            genre: "",
-            history: []
+            systems: [],
+            genre: ""
         };
     }
-    return users[id];
+    return users[deviceId];
 }
 
 function expired(user) {
@@ -68,6 +66,73 @@ function auth(req, res, next) {
 }
 
 // =========================
+// DEPENDENCIES (v1.5 CORE)
+// =========================
+
+const dependencies = {
+    sprint: ["stamina"],
+    inventory: ["ui"],
+    stamina: [],
+    ui: [],
+    door: []
+};
+
+// =========================
+// BLUEPRINTS
+// =========================
+
+const blueprints = {
+    sprint: {
+        location: "StarterPlayerScripts",
+        code: `print("Sprint System Loaded")`
+    },
+
+    stamina: {
+        location: "StarterGui",
+        code: `print("Stamina System Loaded")`
+    },
+
+    ui: {
+        location: "StarterGui",
+        code: `print("UI System Loaded")`
+    },
+
+    door: {
+        location: "Workspace",
+        code: `print("Door System Loaded")`
+    },
+
+    inventory: {
+        location: "StarterGui",
+        code: `print("Inventory System Loaded")`
+    }
+};
+
+// =========================
+// DEPENDENCY RESOLVER
+// =========================
+
+function resolveBlueprint(name, installed = new Set()) {
+    if (!blueprints[name]) return [];
+
+    let result = [];
+
+    const deps = dependencies[name] || [];
+
+    for (const dep of deps) {
+        if (!installed.has(dep)) {
+            result = result.concat(resolveBlueprint(dep, installed));
+            installed.add(dep);
+        }
+    }
+
+    result.push(name);
+    installed.add(name);
+
+    return result;
+}
+
+// =========================
 // REDEEM
 // =========================
 
@@ -83,6 +148,7 @@ app.post("/redeem", auth, (req, res) => {
     }
 
     const user = getUser(deviceId);
+
     user.expiresAt = Date.now() + 12 * 60 * 60 * 1000;
 
     inviteCodes[code] = true;
@@ -108,49 +174,6 @@ app.post("/access", auth, (req, res) => {
 });
 
 // =========================
-// BLUEPRINT DATA
-// =========================
-
-const blueprints = {
-    sprint: {
-        location: "StarterPlayerScripts",
-        code: `local UIS = game:GetService("UserInputService")
-local player = game.Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local hum = char:WaitForChild("Humanoid")
-
-UIS.InputBegan:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.LeftShift then
-		hum.WalkSpeed = 24
-	end
-end)
-
-UIS.InputEnded:Connect(function(input)
-	if input.KeyCode == Enum.KeyCode.LeftShift then
-		hum.WalkSpeed = 16
-	end
-end)`
-    },
-
-    stamina: {
-        location: "StarterGui",
-        code: `local stamina = 100
-while true do
-	wait(1)
-	stamina = math.max(0, stamina - 1)
-	print("Stamina:", stamina)
-end`
-    },
-
-    door: {
-        location: "Workspace",
-        code: `script.Parent.Touched:Connect(function()
-	print("Door triggered")
-end)`
-    }
-};
-
-// =========================
 // LIST BLUEPRINTS
 // =========================
 
@@ -159,21 +182,42 @@ app.get("/blueprints", (req, res) => {
 });
 
 // =========================
-// GET SINGLE BLUEPRINT
+// SMART INSTALL SYSTEM (v1.5)
 // =========================
 
-app.get("/blueprint/:name", (req, res) => {
-    const bp = blueprints[req.params.name];
+app.post("/install", auth, (req, res) => {
+    const { deviceId, blueprint } = req.body;
 
-    if (!bp) {
-        return res.json({ error: "Not found" });
+    const user = getUser(deviceId);
+
+    const order = resolveBlueprint(blueprint);
+
+    let installed = [];
+
+    for (const bp of order) {
+        const data = blueprints[bp];
+
+        installed.push({
+            name: bp,
+            location: data.location,
+            code: data.code
+        });
+
+        if (!user.systems.includes(bp)) {
+            user.systems.push(bp);
+        }
     }
 
-    res.json(bp);
+    saveUsers();
+
+    res.json({
+        success: true,
+        installed
+    });
 });
 
 // =========================
-// GENRE SYSTEM
+// GENRE
 // =========================
 
 app.post("/genre", auth, (req, res) => {
@@ -186,7 +230,7 @@ app.post("/genre", auth, (req, res) => {
     const rec = {
         Horror: ["sprint", "stamina", "door"],
         FPS: ["sprint", "door"],
-        Simulator: ["stamina"]
+        Simulator: ["inventory"]
     };
 
     res.json({
@@ -196,57 +240,9 @@ app.post("/genre", auth, (req, res) => {
 });
 
 // =========================
-// AI (DEEPSEEK PROXY)
-// =========================
-
-app.post("/ai", auth, async (req, res) => {
-    const user = getUser(req.body.deviceId);
-
-    if (expired(user)) {
-        return res.json({ success: false, error: "Expired" });
-    }
-
-    user.history.push(req.body.prompt);
-    if (user.history.length > 10) user.history.shift();
-
-    try {
-        const response = await fetch(DEEPSEEK_URL, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${DEEPSEEK_KEY}`
-            },
-            body: JSON.stringify({
-                model: "deepseek-chat",
-                messages: [
-                    {
-                        role: "system",
-                        content: "You are ScriptForge AI for Roblox Studio. Output ONLY Lua scripts."
-                    },
-                    {
-                        role: "user",
-                        content: req.body.prompt + "\nGenre:" + user.genre
-                    }
-                ]
-            })
-        });
-
-        const data = await response.json();
-
-        res.json({
-            success: true,
-            output: data.choices?.[0]?.message?.content || "No response"
-        });
-
-    } catch (e) {
-        res.json({ success: false, error: "AI failed" });
-    }
-});
-
-// =========================
 // START
 // =========================
 
 app.listen(PORT, () => {
-    console.log("ScriptForge v1.4 running on", PORT);
+    console.log("ScriptForge v1.5 running on", PORT);
 });
