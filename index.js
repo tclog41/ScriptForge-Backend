@@ -1,12 +1,20 @@
 const express = require("express");
 const fs = require("fs");
+const fetch = require("node-fetch");
 
 const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
+// =========================
+// CONFIG
+// =========================
+
 const API_KEY = process.env.API_KEY;
+
+const AI_KEY = process.env.AI_KEY;
+const AI_URL = "https://api.deepseek.com/chat/completions";
 
 // =========================
 // STORAGE
@@ -46,10 +54,9 @@ function getUser(id) {
     if (!users[id]) {
         users[id] = {
             expiresAt: 0,
-            genre: "",
             systems: [],
             scripts: {},
-            history: []
+            genre: ""
         };
     }
     return users[id];
@@ -60,7 +67,7 @@ function expired(user) {
 }
 
 // =========================
-// CACHE SYSTEM (IMPORTANT COST SAVER)
+// CACHE (KEY COST SAVER)
 // =========================
 
 function getCache(key) {
@@ -78,7 +85,7 @@ function getCache(key) {
 function setCache(key, value) {
     cache[key] = {
         value,
-        expiry: Date.now() + 1000 * 60 * 60 * 24 // 24h
+        expiry: Date.now() + 1000 * 60 * 60 * 24 * 7 // 7 days
     };
 }
 
@@ -98,30 +105,15 @@ function auth(req, res, next) {
 // =========================
 
 const blueprints = {
-    sprint: {
-        location: "StarterPlayerScripts",
-        code: `print("Sprint Loaded")`
-    },
-    stamina: {
-        location: "StarterGui",
-        code: `print("Stamina Loaded")`
-    },
-    ui: {
-        location: "StarterGui",
-        code: `print("UI Loaded")`
-    },
-    door: {
-        location: "Workspace",
-        code: `print("Door Loaded")`
-    },
-    inventory: {
-        location: "StarterGui",
-        code: `print("Inventory Loaded")`
-    }
+    sprint: { location: "StarterPlayerScripts", code: `print("Sprint Loaded")` },
+    stamina: { location: "StarterGui", code: `print("Stamina Loaded")` },
+    ui: { location: "StarterGui", code: `print("UI Loaded")` },
+    door: { location: "Workspace", code: `print("Door Loaded")` },
+    inventory: { location: "StarterGui", code: `print("Inventory Loaded")` }
 };
 
 // =========================
-// DEPENDENCIES (NO AI COST)
+// DEPENDENCIES
 // =========================
 
 const dependencies = {
@@ -133,7 +125,7 @@ const dependencies = {
 };
 
 // =========================
-// RESOLVER
+// RESOLVE DEPENDENCIES
 // =========================
 
 function resolveBlueprint(name, installed = new Set()) {
@@ -155,63 +147,15 @@ function resolveBlueprint(name, installed = new Set()) {
 }
 
 // =========================
-// REDEEM
-// =========================
-
-app.post("/redeem", auth, (req, res) => {
-    const { deviceId, code } = req.body;
-
-    if (!inviteCodes[code]) {
-        return res.json({ success: false, error: "Invalid code" });
-    }
-
-    if (inviteCodes[code] === true) {
-        return res.json({ success: false, error: "Used code" });
-    }
-
-    const user = getUser(deviceId);
-    user.expiresAt = Date.now() + 12 * 60 * 60 * 1000;
-
-    inviteCodes[code] = true;
-
-    saveUsers();
-    saveCodes();
-
-    res.json({ success: true });
-});
-
-// =========================
-// ACCESS
-// =========================
-
-app.post("/access", auth, (req, res) => {
-    const user = getUser(req.body.deviceId);
-
-    if (expired(user)) {
-        return res.json({ success: false });
-    }
-
-    res.json({ success: true });
-});
-
-// =========================
-// BLUEPRINT LIST
-// =========================
-
-app.get("/blueprints", (req, res) => {
-    res.json(Object.keys(blueprints));
-});
-
-// =========================
-// INSTALL (CACHE-FIRST)
+// INSTALL
 // =========================
 
 app.post("/install", auth, (req, res) => {
     const { deviceId, blueprint } = req.body;
 
-    const cacheKey = `${deviceId}-${blueprint}`;
-
+    const cacheKey = `install-${deviceId}-${blueprint}`;
     const cached = getCache(cacheKey);
+
     if (cached) {
         return res.json({
             success: true,
@@ -221,7 +165,6 @@ app.post("/install", auth, (req, res) => {
     }
 
     const user = getUser(deviceId);
-
     const order = resolveBlueprint(blueprint);
 
     let installed = [];
@@ -251,29 +194,99 @@ app.post("/install", auth, (req, res) => {
 });
 
 // =========================
-// EDIT ENGINE (NO AI COST)
+// EDIT ENGINE (RULE BASED)
 // =========================
 
-function editScript(original, request) {
+function ruleEdit(script, request) {
     const r = request.toLowerCase();
 
-    let out = original;
+    let out = script;
 
-    if (r.includes("faster")) out += "\n-- speed increased";
-    if (r.includes("slower")) out += "\n-- speed reduced";
-    if (r.includes("ui")) out += "\n-- ui linked";
-    if (r.includes("mobile")) out += "\n-- mobile support added";
-    if (r.includes("fix")) out += "\n-- bug fix applied";
-    if (r.includes("smooth")) out += "\n-- smoothing added";
+    if (r.includes("faster")) out += "\n-- SPEED BOOST";
+    if (r.includes("slower")) out += "\n-- SPEED REDUCED";
+    if (r.includes("ui")) out += "\n-- UI LINKED";
+    if (r.includes("mobile")) out += "\n-- MOBILE SUPPORT";
+    if (r.includes("fix")) out += "\n-- BUG FIX";
+    if (r.includes("smooth")) out += "\n-- SMOOTH IMPROVED";
 
     return out;
+}
+
+// =========================
+// AI CALL (ONLY LAST RESORT)
+// =========================
+
+async function callAI(prompt) {
+    const res = await fetch(AI_URL, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${AI_KEY}`
+        },
+        body: JSON.stringify({
+            model: "deepseek-chat",
+            messages: [
+                {
+                    role: "system",
+                    content: "You are a Roblox Luau developer. Return ONLY full script."
+                },
+                {
+                    role: "user",
+                    content: prompt
+                }
+            ],
+            temperature: 0.2
+        })
+    });
+
+    const data = await res.json();
+    return data.choices?.[0]?.message?.content || "-- AI FAILED";
+}
+
+// =========================
+// HYBRID EDIT ENGINE
+// =========================
+
+async function smartEdit(deviceId, blueprint, request, baseScript) {
+
+    const cacheKey = `edit-${blueprint}-${request}`;
+    const cached = getCache(cacheKey);
+
+    if (cached) return cached;
+
+    // 1. RULE ENGINE FIRST (FREE)
+    const keywords = ["faster", "slower", "ui", "mobile", "fix", "smooth"];
+
+    if (keywords.some(k => request.toLowerCase().includes(k))) {
+        const result = ruleEdit(baseScript, request);
+        setCache(cacheKey, result);
+        return result;
+    }
+
+    // 2. AI FALLBACK (EXPENSIVE)
+    const prompt = `
+Modify this Roblox script:
+
+SCRIPT:
+${baseScript}
+
+REQUEST:
+${request}
+
+Return ONLY full script.
+    `;
+
+    const ai = await callAI(prompt);
+
+    setCache(cacheKey, ai);
+    return ai;
 }
 
 // =========================
 // EDIT ENDPOINT
 // =========================
 
-app.post("/edit", auth, (req, res) => {
+app.post("/edit", auth, async (req, res) => {
     const { deviceId, blueprint, request } = req.body;
 
     const user = getUser(deviceId);
@@ -285,7 +298,12 @@ app.post("/edit", auth, (req, res) => {
         });
     }
 
-    const updated = editScript(user.scripts[blueprint], request);
+    const updated = await smartEdit(
+        deviceId,
+        blueprint,
+        request,
+        user.scripts[blueprint]
+    );
 
     user.scripts[blueprint] = updated;
 
@@ -293,8 +311,23 @@ app.post("/edit", auth, (req, res) => {
 
     res.json({
         success: true,
+        source: updated.includes("-- AI") ? "ai" : "rule-or-cache",
         updated
     });
+});
+
+// =========================
+// ACCESS CHECK
+// =========================
+
+app.post("/access", auth, (req, res) => {
+    const user = getUser(req.body.deviceId);
+
+    if (expired(user)) {
+        return res.json({ success: false });
+    }
+
+    res.json({ success: true });
 });
 
 // =========================
@@ -302,5 +335,5 @@ app.post("/edit", auth, (req, res) => {
 // =========================
 
 app.listen(PORT, () => {
-    console.log("ScriptForge v1.6.1 running on", PORT);
+    console.log("ScriptForge v1.7 Hybrid AI running on", PORT);
 });
