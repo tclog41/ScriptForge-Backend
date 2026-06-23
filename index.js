@@ -3,7 +3,6 @@ require("dotenv").config();
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
 const crypto = require("crypto");
-const fetch = require("node-fetch");
 const { Client, GatewayIntentBits } = require("discord.js");
 
 const app = express();
