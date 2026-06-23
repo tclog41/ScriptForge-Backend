@@ -1,8 +1,0 @@
-{
-  "name": "door",
-  "type": "interaction",
-  "variables": {
-    "openSpeed": 1.5
-  },
-  "code": "-- Door System\nlocal openSpeed = {{openSpeed}}\n\nprint('Door system loaded')"
-}
