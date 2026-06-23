@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const fs = require("fs");
 const path = require("path");
+const sqlite3 = require("sqlite3").verbose();
 
 const app = express();
 app.use(express.json());
@@ -12,7 +13,22 @@ const PORT = process.env.PORT || 3000;
 const TEMPLATE_FOLDER = path.join(__dirname, "templates");
 
 // =========================
-// 🔐 AUTH
+// DATABASE
+// =========================
+
+const db = new sqlite3.Database("./scriptforge.db");
+
+// create cache table
+db.run(`
+CREATE TABLE IF NOT EXISTS cache (
+    prompt TEXT PRIMARY KEY,
+    script TEXT,
+    createdAt INTEGER
+)
+`);
+
+// =========================
+// AUTH
 // =========================
 
 function verifyKey(req, res, next) {
@@ -23,13 +39,12 @@ function verifyKey(req, res, next) {
 }
 
 // =========================
-// 📦 LOAD TEMPLATE FROM FILE
+// TEMPLATE LOADER
 // =========================
 
 function loadTemplate(id) {
     try {
         const filePath = path.join(TEMPLATE_FOLDER, `${id}.json`);
-
         if (!fs.existsSync(filePath)) return null;
 
         const raw = fs.readFileSync(filePath, "utf8");
@@ -41,7 +56,31 @@ function loadTemplate(id) {
 }
 
 // =========================
-// 🤖 AI CALL
+// CACHE SYSTEM
+// =========================
+
+function getCache(prompt) {
+    return new Promise((resolve) => {
+        db.get(
+            "SELECT script FROM cache WHERE prompt = ?",
+            [prompt],
+            (err, row) => {
+                if (err || !row) return resolve(null);
+                resolve(row.script);
+            }
+        );
+    });
+}
+
+function saveCache(prompt, script) {
+    db.run(
+        "INSERT OR REPLACE INTO cache (prompt, script, createdAt) VALUES (?, ?, ?)",
+        [prompt, script, Date.now()]
+    );
+}
+
+// =========================
+// AI CALL (DeepSeek)
 // =========================
 
 async function callAI(prompt) {
@@ -57,7 +96,7 @@ async function callAI(prompt) {
                 messages: [
                     {
                         role: "system",
-                        content: "You are a Roblox Lua expert. Output ONLY clean working Lua code."
+                        content: "You are a Roblox Lua expert. Output ONLY working Lua code. No explanations."
                     },
                     {
                         role: "user",
@@ -76,78 +115,69 @@ async function callAI(prompt) {
 }
 
 // =========================
-// 🔥 GENERATE ENDPOINT
+// MAIN GENERATE SYSTEM
 // =========================
 
 app.post("/generate", verifyKey, async (req, res) => {
-    const {
-        userId,
-        mode,
-        template,
-        prompt,
-        existingScript
-    } = req.body;
-
-    let finalPrompt = "";
+    const { template, prompt } = req.body;
 
     // =========================
-    // ✏ EDIT MODE
+    // 1. TEMPLATE CHECK
     // =========================
+    const tpl = loadTemplate(template);
 
-    if (mode === "edit") {
-        finalPrompt = `
-You are editing a Roblox script.
+    if (tpl) {
 
-Rules:
-- Only change what is requested
-- Keep structure clean
-- Do NOT break existing systems
-- Return full updated script
-
-EXISTING SCRIPT:
-${existingScript}
-
-USER REQUEST:
-${prompt}
-`;
-    }
-
-    // =========================
-    // 🧠 TEMPLATE MODE
-    // =========================
-
-    else {
-        const tpl = loadTemplate(template);
-
-        if (!tpl) {
+        // STATIC TEMPLATE
+        if (tpl.type === "static") {
             return res.json({
-                success: false,
-                error: "template_not_found"
+                success: true,
+                source: "template",
+                script: tpl.script
             });
         }
 
-        finalPrompt = `
-${tpl.prompt}
+        // AI TEMPLATE
+        const aiPrompt = tpl.prompt + "\n\nUSER REQUEST:\n" + prompt;
+        const script = await callAI(aiPrompt);
 
-USER REQUEST:
-${prompt}
-`;
+        return res.json({
+            success: true,
+            source: "ai-template",
+            script
+        });
     }
 
     // =========================
-    // 🤖 AI REQUEST
+    // 2. CACHE CHECK
     // =========================
+    const cached = await getCache(prompt);
 
-    const script = await callAI(finalPrompt);
+    if (cached) {
+        return res.json({
+            success: true,
+            source: "cache",
+            script: cached
+        });
+    }
 
-    res.json({
+    // =========================
+    // 3. AI FALLBACK
+    // =========================
+    const script = await callAI(prompt);
+
+    // save to cache
+    saveCache(prompt, script);
+
+    return res.json({
         success: true,
+        source: "ai-fallback",
         script
     });
 });
 
 // =========================
-// 📋 LIST TEMPLATES
+// LIST TEMPLATES
 // =========================
 
 app.get("/templates", verifyKey, (req, res) => {
@@ -162,7 +192,8 @@ app.get("/templates", verifyKey, (req, res) => {
 
                 return {
                     id,
-                    name: data?.name || id
+                    name: data?.name || id,
+                    type: data?.type || "ai"
                 };
             });
 
@@ -180,11 +211,11 @@ app.get("/templates", verifyKey, (req, res) => {
 });
 
 // =========================
-// 🚀 HEALTH CHECK
+// HEALTH CHECK
 // =========================
 
 app.get("/", (req, res) => {
-    res.send("🚀 ScriptForge v11 Backend Running");
+    res.send("🚀 ScriptForge v11 (Template → Cache → AI)");
 });
 
 // =========================
@@ -192,5 +223,5 @@ app.get("/", (req, res) => {
 // =========================
 
 app.listen(PORT, () => {
-    console.log(`🚀 ScriptForge v11 running on port ${PORT}`);
+    console.log(`🚀 ScriptForge running on port ${PORT}`);
 });
