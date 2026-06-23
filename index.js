@@ -2,11 +2,11 @@ require("dotenv").config();
 
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
-const crypto = require("crypto");
-const { Client, GatewayIntentBits } = require("discord.js");
 
 const app = express();
 app.use(express.json());
+
+const PORT = process.env.PORT || 3000;
 
 // =========================
 // 🧠 DATABASE
@@ -24,15 +24,8 @@ CREATE TABLE IF NOT EXISTS users (
 )
 `);
 
-db.run(`
-CREATE TABLE IF NOT EXISTS memory (
-    userId TEXT PRIMARY KEY,
-    context TEXT
-)
-`);
-
 // =========================
-// 🔐 VERIFY API KEY
+// 🔐 API SECURITY
 // =========================
 
 function verifyKey(req, res, next) {
@@ -43,135 +36,134 @@ function verifyKey(req, res, next) {
 }
 
 // =========================
-// 🧠 SIMPLE INTENT DETECTOR
+// 🧠 ACCESS CHECK ENGINE
 // =========================
 
-function detectIntent(prompt) {
-    const p = prompt.toLowerCase();
+function checkAccess(userId) {
+    return new Promise((resolve) => {
+        db.get("SELECT * FROM users WHERE userId = ?", [userId], (err, row) => {
+            if (!row) return resolve({ ok: false });
 
-    if (p.includes("improve") || p.includes("fix") || p.includes("optimize")) {
-        return "edit";
-    }
+            if (Date.now() > row.expiresAt) {
+                return resolve({ ok: false, reason: "expired" });
+            }
 
-    if (p.includes("sprint") || p.includes("combat") || p.includes("ui") || p.includes("inventory")) {
-        return "template";
-    }
+            if (row.uses >= row.maxUses) {
+                return resolve({ ok: false, reason: "limit" });
+            }
 
-    return "ai";
+            resolve({ ok: true, row });
+        });
+    });
 }
 
 // =========================
-// 🧠 TEMPLATE ENGINE
+// 🤖 AI ENGINE (SAFE WRAPPER)
 // =========================
 
-const templates = {
-    sprint: `-- Sprint System
-local speed = 24
-game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = speed`,
+async function callAI(prompt, mode = "create") {
+    try {
+        if (!process.env.DEEPSEEK_KEY) {
+            return "-- AI OFFLINE\nprint('no key')";
+        }
 
-    combat: `-- Combat System
-print("Combat ready")`,
+        const res = await fetch("https://api.deepseek.com/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${process.env.DEEPSEEK_KEY}`
+            },
+            body: JSON.stringify({
+                model: "deepseek-chat",
+                messages: [
+                    {
+                        role: "system",
+                        content: "You are a Roblox Lua scripting assistant. Output ONLY code."
+                    },
+                    {
+                        role: "user",
+                        content: `${mode.toUpperCase()} MODE:\n${prompt}`
+                    }
+                ]
+            })
+        });
 
-    ui: `-- UI System
-local gui = Instance.new("ScreenGui")
-gui.Parent = game.Players.LocalPlayer.PlayerGui`,
+        const data = await res.json();
+        return data?.choices?.[0]?.message?.content || "-- AI FAILED";
 
-    inventory: `-- Inventory System
-local inv = {}
-print("Inventory ready")`
-};
-
-// =========================
-// 🤖 AI CALL (DEEPSEEK READY)
-// =========================
-
-async function callAI(prompt, context = "", mode = "create") {
-    // ⚠️ placeholder endpoint (swap with real DeepSeek later)
-    // You can replace this with OpenAI or DeepSeek API
-
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.DEEPSEEK_KEY || ""}`
-        },
-        body: JSON.stringify({
-            model: "deepseek-chat",
-            messages: [
-                { role: "system", content: "You are a Roblox Lua expert." },
-                { role: "user", content: context + "\n\n" + prompt }
-            ]
-        })
-    }).catch(() => null);
-
-    if (!response) {
-        return `-- AI OFFLINE FALLBACK\nprint("No AI available")`;
+    } catch (err) {
+        return "-- AI ERROR (fallback mode)";
     }
-
-    const data = await response.json();
-
-    return data?.choices?.[0]?.message?.content || "-- AI FAILED";
 }
 
 // =========================
-// 🔌 GENERATE ENDPOINT (v5 CORE)
+// ✏️ EDIT ENGINE
+// =========================
+
+function buildEditPrompt(oldScript, request) {
+    return `
+You are editing a Roblox script.
+
+OLD SCRIPT:
+${oldScript}
+
+REQUEST:
+${request}
+
+Return ONLY the updated script.
+`;
+}
+
+// =========================
+// 🌐 GENERATE / EDIT ENDPOINT
 // =========================
 
 app.post("/generate", verifyKey, async (req, res) => {
-    const { userId, prompt } = req.body;
+    const { userId, prompt, mode, existingScript } = req.body;
 
-    const intent = detectIntent(prompt);
+    const access = await checkAccess(userId);
+
+    if (!access.ok) {
+        return res.json({
+            success: false,
+            error: access.reason || "no_access"
+        });
+    }
+
+    // increase usage
+    db.run("UPDATE users SET uses = uses + 1 WHERE userId = ?", [userId]);
+
+    let result;
 
     // =========================
-    // 🧠 TEMPLATE FIRST
+    // ✏️ EDIT MODE
     // =========================
-
-    if (intent === "template") {
-        const key = Object.keys(templates).find(t =>
-            prompt.toLowerCase().includes(t)
-        );
-
-        if (key) {
-            return res.json({
-                script: templates[key],
-                source: "template"
-            });
-        }
+    if (mode === "edit" && existingScript) {
+        const editPrompt = buildEditPrompt(existingScript, prompt);
+        result = await callAI(editPrompt, "edit");
     }
 
     // =========================
-    // 🧠 MEMORY LOAD
+    // 🧠 CREATE MODE
     // =========================
+    else {
+        result = await callAI(prompt, "create");
+    }
 
-    let context = "";
-
-    db.get("SELECT context FROM memory WHERE userId = ?", [userId], (err, row) => {
-        if (row) context = row.context || "";
-    });
-
-    // =========================
-    // 🤖 AI / EDIT MODE
-    // =========================
-
-    let mode = intent === "edit" ? "edit" : "create";
-
-    const ai = await callAI(prompt, context, mode);
-
-    // Save memory (simple overwrite)
-    db.run(
-        "INSERT OR REPLACE INTO memory (userId, context) VALUES (?, ?)",
-        [userId, prompt]
-    );
+    const newUsesLeft = access.row
+        ? access.row.maxUses - (access.row.uses + 1)
+        : 0;
 
     res.json({
-        script: ai,
-        source: "ai",
-        mode
+        success: true,
+        script: result,
+        mode,
+        usesLeft: newUsesLeft
     });
 });
 
 // =========================
-// 🔐 VALIDATE
+// 🔌 VALIDATION ENDPOINT
 // =========================
 
 app.post("/validate", verifyKey, (req, res) => {
@@ -184,7 +176,7 @@ app.post("/validate", verifyKey, (req, res) => {
             if (!row) return res.json({ valid: false });
 
             if (Date.now() > row.expiresAt) {
-                return res.json({ valid: false });
+                return res.json({ valid: false, reason: "expired" });
             }
 
             res.json({
@@ -196,15 +188,17 @@ app.post("/validate", verifyKey, (req, res) => {
 });
 
 // =========================
-// 🔌 USE TRACKING
+// 🔁 USE TRACKING (OPTIONAL HARD CHECK)
 // =========================
 
 app.post("/use", verifyKey, (req, res) => {
     const { userId } = req.body;
 
     db.get("SELECT * FROM users WHERE userId = ?", [userId], (err, row) => {
-        if (!row || row.uses >= row.maxUses) {
-            return res.json({ ok: false });
+        if (!row) return res.json({ ok: false });
+
+        if (row.uses >= row.maxUses) {
+            return res.json({ ok: false, reason: "limit" });
         }
 
         db.run("UPDATE users SET uses = uses + 1 WHERE userId = ?", [userId]);
@@ -214,72 +208,9 @@ app.post("/use", verifyKey, (req, res) => {
 });
 
 // =========================
-// 🤖 DISCORD BOT (same service)
+// 🚀 START SERVER
 // =========================
 
-const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
-    ]
+app.listen(PORT, () => {
+    console.log(`🚀 ScriptForge v7 Backend running on port ${PORT}`);
 });
-
-function isAdmin(id) {
-    return id === process.env.ADMIN_ID;
-}
-
-function generateCode() {
-    return crypto.randomBytes(6).toString("hex");
-}
-
-// =========================
-// 🎟️ RAFFLE (simple v5 version)
-// =========================
-
-let entries = [];
-
-client.on("messageCreate", async (msg) => {
-    if (msg.author.bot) return;
-
-    const args = msg.content.split(" ");
-    const cmd = args[0];
-
-    if (cmd === "!enterraffle") {
-        if (!entries.includes(msg.author.id)) {
-            entries.push(msg.author.id);
-            msg.reply("✅ Entered raffle");
-        }
-    }
-
-    if (cmd === "!raffle") {
-        if (!isAdmin(msg.author.id)) return;
-
-        const winner = entries[Math.floor(Math.random() * entries.length)];
-
-        const code = generateCode();
-
-        db.run(
-            "INSERT OR REPLACE INTO users VALUES (?,?,?,?,?)",
-            [winner, code, Date.now() + 86400000, 0, 10]
-        );
-
-        msg.channel.send(`🎉 Winner: <@${winner}>`);
-
-        client.users.fetch(winner).then(u => {
-            u.send(`🎉 You won access!\nCode: ${code}\n10 uses / 24h`);
-        });
-
-        entries = [];
-    }
-});
-
-// =========================
-// START
-// =========================
-
-app.listen(process.env.PORT || 3000, () => {
-    console.log("🚀 ScriptForge v5 running");
-});
-
-client.login(process.env.BOT_TOKEN);
