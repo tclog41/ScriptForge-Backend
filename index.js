@@ -5,18 +5,24 @@ const rateLimit = require("express-rate-limit");
 const app = express();
 app.use(express.json());
 
-// =========================
-// 🌐 SERVER
-// =========================
-
 const PORT = process.env.PORT || 3000;
 
+// =========================
+// 🌐 BASIC SERVER
+// =========================
+
 app.get("/", (req, res) => {
-    res.send("ScriptForge Web Service Running 🚀");
+    res.send("ScriptForge v1 Backend Running 🚀");
 });
 
 // =========================
-// 💾 USERS STORAGE
+// 🔐 AUTH
+// =========================
+
+const API_KEY = process.env.API_KEY;
+
+// =========================
+// 💾 USER DATA
 // =========================
 
 let users = {};
@@ -30,10 +36,24 @@ function saveUsers() {
 }
 
 // =========================
-// 🔐 AUTH (Discord bot key)
+// 🧠 PROJECT MEMORY (v1 CORE FEATURE)
 // =========================
 
-const API_KEY = process.env.API_KEY;
+function getProject(userId) {
+    if (!users[userId]) {
+        users[userId] = {
+            expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+            systems: [],
+            modifiers: [],
+            history: []
+        };
+    }
+    return users[userId];
+}
+
+// =========================
+// 🔐 AUTH MIDDLEWARE
+// =========================
 
 function auth(req, res, next) {
     if (req.body.key !== API_KEY) {
@@ -43,72 +63,89 @@ function auth(req, res, next) {
 }
 
 // =========================
-// ⏳ ACCESS CHECK
-// =========================
-
-function hasAccess(userId) {
-    const user = users[userId];
-    if (!user) return false;
-    return Date.now() < user.expiresAt;
-}
-
-// =========================
-// 🧠 BLUEPRINT SYSTEM (CORE)
+// 🧩 BLUEPRINT ENGINE (v1)
 // =========================
 
 const blueprints = {
     sprint: {
-        script: "-- Sprint System\nprint('Sprint loaded')",
-        modifiers: ["ui", "stamina"]
+        base: "-- Sprint System\nprint('Sprint loaded')",
+        allowedModifiers: ["ui", "stamina", "mobile"]
     },
     door: {
-        script: "-- Door System\nprint('Door loaded')",
-        modifiers: ["lock", "key"]
+        base: "-- Door System\nprint('Door loaded')",
+        allowedModifiers: ["lock", "key"]
     },
     ui: {
-        script: "-- UI System\nprint('UI loaded')",
-        modifiers: []
+        base: "-- UI System\nprint('UI loaded')",
+        allowedModifiers: []
     }
 };
 
 // =========================
-// 🔧 GENERATE ENGINE
+// ⚙️ APPLY MODIFIERS
+// =========================
+
+function applyModifiers(script, modifiers) {
+    let output = script;
+
+    if (modifiers.includes("ui")) {
+        output += "\n-- UI attached";
+    }
+
+    if (modifiers.includes("stamina")) {
+        output += "\n-- Stamina system attached";
+    }
+
+    if (modifiers.includes("mobile")) {
+        output += "\n-- Mobile support enabled";
+    }
+
+    return output;
+}
+
+// =========================
+// 🚀 GENERATE ENGINE (CORE)
 // =========================
 
 app.post("/generate", auth, (req, res) => {
     const { userId, system, modifiers = [] } = req.body;
 
-    if (!hasAccess(userId)) {
-        return res.json({ error: "No access" });
-    }
+    const project = getProject(userId);
+
+    // save history
+    project.history.push({ system, modifiers });
+    if (project.history.length > 20) project.history.shift();
 
     const blueprint = blueprints[system];
 
     if (!blueprint) {
         return res.json({
-            error: "No blueprint found (AI fallback later)"
+            success: false,
+            error: "No blueprint found (AI fallback reserved)"
         });
     }
 
-    let script = blueprint.script;
+    // filter invalid modifiers
+    const validMods = modifiers.filter(m =>
+        blueprint.allowedModifiers.includes(m)
+    );
 
-    // =========================
-    // 🧩 APPLY MODIFIERS (NO AI)
-    // =========================
+    let script = blueprint.base;
 
-    if (modifiers.includes("ui")) {
-        script += "\n-- UI module attached";
-    }
+    script = applyModifiers(script, validMods);
 
-    if (modifiers.includes("stamina")) {
-        script += "\n-- Stamina system attached";
-    }
+    // update project state
+    project.systems.push(system);
+    project.modifiers = [...new Set([...project.modifiers, ...validMods])];
+
+    saveUsers();
 
     return res.json({
         success: true,
-        script,
         system,
-        modifiers
+        modifiers: validMods,
+        script,
+        projectState: project
     });
 });
 
@@ -117,5 +154,5 @@ app.post("/generate", auth, (req, res) => {
 // =========================
 
 app.listen(PORT, () => {
-    console.log("ScriptForge backend running on port", PORT);
+    console.log("ScriptForge v1 backend running on", PORT);
 });
