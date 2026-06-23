@@ -36,18 +36,20 @@ function saveCodes() {
 }
 
 // =========================
-// USER SYSTEM
+// USER
 // =========================
 
-function getUser(deviceId) {
-    if (!users[deviceId]) {
-        users[deviceId] = {
+function getUser(id) {
+    if (!users[id]) {
+        users[id] = {
             expiresAt: 0,
+            genre: "",
+            history: [],
             systems: [],
-            genre: ""
+            scripts: {} // v1.6 NEW
         };
     }
-    return users[deviceId];
+    return users[id];
 }
 
 function expired(user) {
@@ -66,7 +68,34 @@ function auth(req, res, next) {
 }
 
 // =========================
-// DEPENDENCIES (v1.5 CORE)
+// BLUEPRINTS
+// =========================
+
+const blueprints = {
+    sprint: {
+        location: "StarterPlayerScripts",
+        code: `print("Sprint System Loaded")`
+    },
+    stamina: {
+        location: "StarterGui",
+        code: `print("Stamina System Loaded")`
+    },
+    ui: {
+        location: "StarterGui",
+        code: `print("UI System Loaded")`
+    },
+    door: {
+        location: "Workspace",
+        code: `print("Door System Loaded")`
+    },
+    inventory: {
+        location: "StarterGui",
+        code: `print("Inventory System Loaded")`
+    }
+};
+
+// =========================
+// DEPENDENCIES (from v1.5 still included)
 // =========================
 
 const dependencies = {
@@ -78,38 +107,7 @@ const dependencies = {
 };
 
 // =========================
-// BLUEPRINTS
-// =========================
-
-const blueprints = {
-    sprint: {
-        location: "StarterPlayerScripts",
-        code: `print("Sprint System Loaded")`
-    },
-
-    stamina: {
-        location: "StarterGui",
-        code: `print("Stamina System Loaded")`
-    },
-
-    ui: {
-        location: "StarterGui",
-        code: `print("UI System Loaded")`
-    },
-
-    door: {
-        location: "Workspace",
-        code: `print("Door System Loaded")`
-    },
-
-    inventory: {
-        location: "StarterGui",
-        code: `print("Inventory System Loaded")`
-    }
-};
-
-// =========================
-// DEPENDENCY RESOLVER
+// RESOLVER
 // =========================
 
 function resolveBlueprint(name, installed = new Set()) {
@@ -117,9 +115,7 @@ function resolveBlueprint(name, installed = new Set()) {
 
     let result = [];
 
-    const deps = dependencies[name] || [];
-
-    for (const dep of deps) {
+    for (const dep of (dependencies[name] || [])) {
         if (!installed.has(dep)) {
             result = result.concat(resolveBlueprint(dep, installed));
             installed.add(dep);
@@ -133,30 +129,110 @@ function resolveBlueprint(name, installed = new Set()) {
 }
 
 // =========================
-// REDEEM
+// INSTALL (v1.6 UPDATED)
 // =========================
 
-app.post("/redeem", auth, (req, res) => {
-    const { deviceId, code } = req.body;
-
-    if (!inviteCodes[code]) {
-        return res.json({ success: false, error: "Invalid code" });
-    }
-
-    if (inviteCodes[code] === true) {
-        return res.json({ success: false, error: "Used code" });
-    }
+app.post("/install", auth, (req, res) => {
+    const { deviceId, blueprint } = req.body;
 
     const user = getUser(deviceId);
 
-    user.expiresAt = Date.now() + 12 * 60 * 60 * 1000;
+    const order = resolveBlueprint(blueprint);
 
-    inviteCodes[code] = true;
+    let installed = [];
+
+    for (const bp of order) {
+        const data = blueprints[bp];
+
+        if (!data) continue;
+
+        user.systems.push(bp);
+
+        user.scripts[bp] = data.code; // IMPORTANT v1.6
+
+        installed.push({
+            name: bp,
+            location: data.location,
+            code: data.code
+        });
+    }
 
     saveUsers();
-    saveCodes();
 
-    res.json({ success: true });
+    res.json({
+        success: true,
+        installed
+    });
+});
+
+// =========================
+// LIST BLUEPRINTS
+// =========================
+
+app.get("/blueprints", (req, res) => {
+    res.json(Object.keys(blueprints));
+});
+
+// =========================
+// EDIT ENGINE (v1.6 CORE)
+// =========================
+
+function editScript(original, request) {
+    let updated = original;
+
+    const r = request.toLowerCase();
+
+    if (r.includes("faster")) {
+        updated += "\n-- SPEED INCREASED";
+    }
+
+    if (r.includes("ui")) {
+        updated += "\n-- UI LINKED";
+    }
+
+    if (r.includes("mobile")) {
+        updated += "\n-- MOBILE SUPPORT ADDED";
+    }
+
+    if (r.includes("fix")) {
+        updated += "\n-- BUG FIX APPLIED";
+    }
+
+    if (r.includes("smooth")) {
+        updated += "\n-- SMOOTHNESS IMPROVED";
+    }
+
+    return updated;
+}
+
+// =========================
+// EDIT ENDPOINT (v1.6)
+// =========================
+
+app.post("/edit", auth, (req, res) => {
+    const { deviceId, blueprint, request } = req.body;
+
+    const user = getUser(deviceId);
+
+    if (!user.scripts[blueprint]) {
+        return res.json({
+            success: false,
+            error: "Script not found"
+        });
+    }
+
+    const original = user.scripts[blueprint];
+
+    const updated = editScript(original, request);
+
+    user.scripts[blueprint] = updated;
+
+    saveUsers();
+
+    res.json({
+        success: true,
+        updated
+    });
 });
 
 // =========================
@@ -174,75 +250,9 @@ app.post("/access", auth, (req, res) => {
 });
 
 // =========================
-// LIST BLUEPRINTS
-// =========================
-
-app.get("/blueprints", (req, res) => {
-    res.json(Object.keys(blueprints));
-});
-
-// =========================
-// SMART INSTALL SYSTEM (v1.5)
-// =========================
-
-app.post("/install", auth, (req, res) => {
-    const { deviceId, blueprint } = req.body;
-
-    const user = getUser(deviceId);
-
-    const order = resolveBlueprint(blueprint);
-
-    let installed = [];
-
-    for (const bp of order) {
-        const data = blueprints[bp];
-
-        installed.push({
-            name: bp,
-            location: data.location,
-            code: data.code
-        });
-
-        if (!user.systems.includes(bp)) {
-            user.systems.push(bp);
-        }
-    }
-
-    saveUsers();
-
-    res.json({
-        success: true,
-        installed
-    });
-});
-
-// =========================
-// GENRE
-// =========================
-
-app.post("/genre", auth, (req, res) => {
-    const user = getUser(req.body.deviceId);
-
-    user.genre = req.body.genre;
-
-    saveUsers();
-
-    const rec = {
-        Horror: ["sprint", "stamina", "door"],
-        FPS: ["sprint", "door"],
-        Simulator: ["inventory"]
-    };
-
-    res.json({
-        genre: user.genre,
-        recommendations: rec[user.genre] || []
-    });
-});
-
-// =========================
 // START
 // =========================
 
 app.listen(PORT, () => {
-    console.log("ScriptForge v1.5 running on", PORT);
+    console.log("ScriptForge v1.6 running on", PORT);
 });
