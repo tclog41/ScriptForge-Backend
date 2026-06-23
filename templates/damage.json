@@ -1,8 +1,0 @@
-{
-  "name": "damage",
-  "type": "combat",
-  "variables": {
-    "damage": 25
-  },
-  "code": "-- Damage System\nlocal damage = {{damage}}\n\nprint('Damage system loaded')"
-}
