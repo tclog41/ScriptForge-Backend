@@ -1,6 +1,5 @@
 const express = require("express");
 const fs = require("fs");
-const rateLimit = require("express-rate-limit");
 
 const app = express();
 app.use(express.json());
@@ -8,35 +7,19 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 // =========================
-// 🌐 BASIC SERVER
-// =========================
-
-app.get("/", (req, res) => {
-    res.send("ScriptForge v1 Backend Running 🚀");
-});
-
-// =========================
-// 🔐 AUTH
-// =========================
-
-const API_KEY = process.env.API_KEY;
-
-// =========================
-// 💾 USER DATA
+// 💾 STORAGE
 // =========================
 
 let users = {};
+let cache = {};
 
+// load users
 if (fs.existsSync("./users.json")) {
     users = JSON.parse(fs.readFileSync("./users.json"));
 }
 
-function saveUsers() {
-    fs.writeFileSync("./users.json", JSON.stringify(users, null, 2));
-}
-
 // =========================
-// 🧠 PROJECT MEMORY (v1 CORE FEATURE)
+// 🧠 PROJECT MEMORY
 // =========================
 
 function getProject(userId) {
@@ -45,15 +28,22 @@ function getProject(userId) {
             expiresAt: Date.now() + 12 * 60 * 60 * 1000,
             systems: [],
             modifiers: [],
+            scripts: {},
             history: []
         };
     }
     return users[userId];
 }
 
+function saveUsers() {
+    fs.writeFileSync("./users.json", JSON.stringify(users, null, 2));
+}
+
 // =========================
-// 🔐 AUTH MIDDLEWARE
+// 🔐 AUTH
 // =========================
+
+const API_KEY = process.env.API_KEY;
 
 function auth(req, res, next) {
     if (req.body.key !== API_KEY) {
@@ -63,60 +53,164 @@ function auth(req, res, next) {
 }
 
 // =========================
-// 🧩 BLUEPRINT ENGINE (v1)
+// 📁 BLUEPRINT FOLDERS (NEW)
 // =========================
 
 const blueprints = {
-    sprint: {
-        base: "-- Sprint System\nprint('Sprint loaded')",
-        allowedModifiers: ["ui", "stamina", "mobile"]
+    movement: {
+        sprint: {
+            base: "-- Sprint System",
+            modifiers: ["ui", "stamina", "mobile"]
+        },
+        crouch: {
+            base: "-- Crouch System",
+            modifiers: ["ui"]
+        }
     },
-    door: {
-        base: "-- Door System\nprint('Door loaded')",
-        allowedModifiers: ["lock", "key"]
-    },
+
     ui: {
-        base: "-- UI System\nprint('UI loaded')",
-        allowedModifiers: []
+        healthbar: {
+            base: "-- Health UI",
+            modifiers: []
+        },
+        inventory: {
+            base: "-- Inventory UI",
+            modifiers: ["drag", "mobile"]
+        }
+    },
+
+    world: {
+        door: {
+            base: "-- Door System",
+            modifiers: ["lock", "key"]
+        }
     }
 };
 
 // =========================
-// ⚙️ APPLY MODIFIERS
+// ⚡ CACHE CHECK (FAST PATH)
 // =========================
 
-function applyModifiers(script, modifiers) {
-    let output = script;
+function getCache(key) {
+    const item = cache[key];
 
-    if (modifiers.includes("ui")) {
-        output += "\n-- UI attached";
+    if (!item) return null;
+    if (Date.now() > item.expiry) {
+        delete cache[key];
+        return null;
     }
 
-    if (modifiers.includes("stamina")) {
-        output += "\n-- Stamina system attached";
-    }
+    return item.value;
+}
 
-    if (modifiers.includes("mobile")) {
-        output += "\n-- Mobile support enabled";
-    }
-
-    return output;
+function setCache(key, value) {
+    cache[key] = {
+        value,
+        expiry: Date.now() + 1000 * 60 * 60 // 1 hour
+    };
 }
 
 // =========================
-// 🚀 GENERATE ENGINE (CORE)
+// 🔧 MODIFIER ENGINE
+// =========================
+
+function applyModifiers(script, mods) {
+    let out = script;
+
+    if (mods.includes("ui")) out += "\n-- UI attached";
+    if (mods.includes("stamina")) out += "\n-- stamina system";
+    if (mods.includes("mobile")) out += "\n-- mobile support";
+    if (mods.includes("lock")) out += "\n-- lock system";
+
+    return out;
+}
+
+// =========================
+// 🧠 FIND BLUEPRINT (NEW STRUCTURE)
+// =========================
+
+function findBlueprint(system) {
+    for (const folder in blueprints) {
+        if (blueprints[folder][system]) {
+            return {
+                folder,
+                name: system,
+                data: blueprints[folder][system]
+            };
+        }
+    }
+    return null;
+}
+
+// =========================
+// ✏️ EDIT ENGINE (NEW)
+// =========================
+
+function editExisting(project, system, request) {
+    let existing = project.scripts[system];
+
+    if (!existing) return null;
+
+    if (request.includes("faster")) {
+        existing += "\n-- speed increased";
+    }
+
+    if (request.includes("ui")) {
+        existing += "\n-- ui updated";
+    }
+
+    return existing;
+}
+
+// =========================
+// 🚀 GENERATE (MAIN ENGINE)
 // =========================
 
 app.post("/generate", auth, (req, res) => {
-    const { userId, system, modifiers = [] } = req.body;
+    const { userId, system, modifiers = [], mode = "create", request = "" } = req.body;
 
     const project = getProject(userId);
 
-    // save history
-    project.history.push({ system, modifiers });
-    if (project.history.length > 20) project.history.shift();
+    const cacheKey = `${userId}-${system}-${modifiers.join("-")}-${mode}`;
 
-    const blueprint = blueprints[system];
+    // =========================
+    // ⚡ CACHE HIT
+    // =========================
+
+    const cached = getCache(cacheKey);
+    if (cached) {
+        return res.json({
+            success: true,
+            source: "cache",
+            script: cached
+        });
+    }
+
+    // =========================
+    // ✏️ EDIT MODE
+    // =========================
+
+    if (mode === "edit") {
+        const edited = editExisting(project, system, request);
+
+        if (edited) {
+            setCache(cacheKey, edited);
+            project.scripts[system] = edited;
+            saveUsers();
+
+            return res.json({
+                success: true,
+                source: "edit-engine",
+                script: edited
+            });
+        }
+    }
+
+    // =========================
+    // 🧩 BLUEPRINT LOOKUP
+    // =========================
+
+    const blueprint = findBlueprint(system);
 
     if (!blueprint) {
         return res.json({
@@ -125,27 +219,25 @@ app.post("/generate", auth, (req, res) => {
         });
     }
 
-    // filter invalid modifiers
-    const validMods = modifiers.filter(m =>
-        blueprint.allowedModifiers.includes(m)
-    );
+    let script = blueprint.data.base;
 
-    let script = blueprint.base;
+    // apply modifiers
+    script = applyModifiers(script, modifiers);
 
-    script = applyModifiers(script, validMods);
-
-    // update project state
+    // save into project memory
     project.systems.push(system);
-    project.modifiers = [...new Set([...project.modifiers, ...validMods])];
+    project.modifiers.push(...modifiers);
+    project.scripts[system] = script;
 
     saveUsers();
 
+    // store cache
+    setCache(cacheKey, script);
+
     return res.json({
         success: true,
-        system,
-        modifiers: validMods,
-        script,
-        projectState: project
+        source: "blueprint",
+        script
     });
 });
 
@@ -154,5 +246,5 @@ app.post("/generate", auth, (req, res) => {
 // =========================
 
 app.listen(PORT, () => {
-    console.log("ScriptForge v1 backend running on", PORT);
+    console.log("ScriptForge v1.1 running on", PORT);
 });
