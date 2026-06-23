@@ -12,35 +12,17 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 app.get("/", (req, res) => {
-    res.send("ScriptForge Backend Running 🚀");
-});
-
-app.listen(PORT, () => {
-    console.log("Server running on port", PORT);
+    res.send("ScriptForge Web Service Running 🚀");
 });
 
 // =========================
-// 🔐 CONFIG
-// =========================
-
-const API_KEY = process.env.API_KEY;
-
-// 👇 PUT YOUR USER ID HERE (ADMIN FOREVER ACCESS)
-const ADMIN_ID = "YOUR_DISCORD_OR_ROBLOX_USER_ID";
-
-// =========================
-// 💾 MEMORY STORE
+// 💾 USERS STORAGE
 // =========================
 
 let users = {};
 
-// load saved users
 if (fs.existsSync("./users.json")) {
-    try {
-        users = JSON.parse(fs.readFileSync("./users.json"));
-    } catch (e) {
-        console.log("Failed to load users.json");
-    }
+    users = JSON.parse(fs.readFileSync("./users.json"));
 }
 
 function saveUsers() {
@@ -48,167 +30,92 @@ function saveUsers() {
 }
 
 // =========================
-// 🎟️ INVITE CODES
+// 🔐 AUTH (Discord bot key)
 // =========================
 
-const inviteCodes = {
-    "ALPHA-1": false,
-    "ALPHA-2": false,
-    "ALPHA-3": false,
-    "ALPHA-4": false,
-    "ALPHA-5": false
-};
-
-function redeemCode(code, userId) {
-    if (!inviteCodes[code]) return false;
-    if (inviteCodes[code] === true) return false;
-
-    inviteCodes[code] = true;
-
-    users[userId] = {
-        role: "user",
-        expiresAt: Date.now() + 12 * 60 * 60 * 1000, // 12 hours
-        aiUses: 0
-    };
-
-    saveUsers();
-    return true;
-}
-
-// =========================
-// 🔐 ACCESS CHECK
-// =========================
-
-function hasAccess(userId) {
-    if (userId === ADMIN_ID) return true;
-
-    const user = users[userId];
-    if (!user) return false;
-
-    return Date.now() < user.expiresAt;
-}
-
-// =========================
-// 🤖 AI USAGE LIMIT (10 USES)
-// =========================
-
-function canUseAI(userId) {
-    if (userId === ADMIN_ID) return true;
-
-    const user = users[userId];
-    if (!user) return false;
-
-    if (user.aiUses >= 10) return false;
-
-    user.aiUses++;
-    saveUsers();
-    return true;
-}
-
-// =========================
-// 🚦 RATE LIMIT (anti spam)
-// =========================
-
-app.use(rateLimit({
-    windowMs: 60 * 1000,
-    max: 10
-}));
-
-// =========================
-// 🔐 MIDDLEWARE
-// =========================
+const API_KEY = process.env.API_KEY;
 
 function auth(req, res, next) {
-    const key = req.body.key;
-
-    if (!key || key !== API_KEY) {
+    if (req.body.key !== API_KEY) {
         return res.status(401).json({ error: "Unauthorized" });
     }
-
     next();
 }
 
 // =========================
-// 🎟️ REDEEM ROUTE
+// ⏳ ACCESS CHECK
 // =========================
 
-app.post("/redeem", auth, (req, res) => {
-    const { code, userId } = req.body;
-
-    if (!code || !userId) {
-        return res.json({ error: "Missing data" });
-    }
-
-    const ok = redeemCode(code, userId);
-
-    if (!ok) {
-        return res.json({ error: "Invalid code" });
-    }
-
-    res.json({ success: true, message: "Access granted" });
-});
+function hasAccess(userId) {
+    const user = users[userId];
+    if (!user) return false;
+    return Date.now() < user.expiresAt;
+}
 
 // =========================
-// 🤖 GENERATE ROUTE
+// 🧠 BLUEPRINT SYSTEM (CORE)
 // =========================
 
-app.post("/generate", auth, async (req, res) => {
-    const { message, userId } = req.body;
-
-    if (!message || !userId) {
-        return res.json({ error: "Missing data" });
+const blueprints = {
+    sprint: {
+        script: "-- Sprint System\nprint('Sprint loaded')",
+        modifiers: ["ui", "stamina"]
+    },
+    door: {
+        script: "-- Door System\nprint('Door loaded')",
+        modifiers: ["lock", "key"]
+    },
+    ui: {
+        script: "-- UI System\nprint('UI loaded')",
+        modifiers: []
     }
+};
 
-    // -------------------------
-    // 🔐 ACCESS CHECK
-    // -------------------------
+// =========================
+// 🔧 GENERATE ENGINE
+// =========================
+
+app.post("/generate", auth, (req, res) => {
+    const { userId, system, modifiers = [] } = req.body;
 
     if (!hasAccess(userId)) {
+        return res.json({ error: "No access" });
+    }
+
+    const blueprint = blueprints[system];
+
+    if (!blueprint) {
         return res.json({
-            success: false,
-            error: "You are not in ScriptForge Alpha."
+            error: "No blueprint found (AI fallback later)"
         });
     }
 
-    // -------------------------
-    // 🤖 AI LIMIT CHECK
-    // -------------------------
+    let script = blueprint.script;
 
-    if (!canUseAI(userId)) {
-        return res.json({
-            success: false,
-            error: "AI limit reached (10 uses)."
-        });
+    // =========================
+    // 🧩 APPLY MODIFIERS (NO AI)
+    // =========================
+
+    if (modifiers.includes("ui")) {
+        script += "\n-- UI module attached";
     }
 
-    // -------------------------
-    // 🧠 TEMPLATE SYSTEM (FAST + FREE)
-    // -------------------------
-
-    const lower = message.toLowerCase();
-
-    let script = null;
-
-    if (lower.includes("sprint")) {
-        script = "-- Sprint system\nlocal speed = 32";
-    }
-    else if (lower.includes("door")) {
-        script = "-- Door system\nprint('Door ready')";
-    }
-    else if (lower.includes("ui")) {
-        script = "-- UI system\nprint('UI created')";
-    }
-
-    // -------------------------
-    // 🤖 AI FALLBACK
-    // -------------------------
-
-    if (!script) {
-        script = `-- AI GENERATED LUA SCRIPT\n-- ${message}`;
+    if (modifiers.includes("stamina")) {
+        script += "\n-- Stamina system attached";
     }
 
     return res.json({
         success: true,
-        script
+        script,
+        system,
+        modifiers
     });
+});
+
+// =========================
+// 🚀 START
+// =========================
+
+app.listen(PORT, () => {
+    console.log("ScriptForge backend running on port", PORT);
 });
