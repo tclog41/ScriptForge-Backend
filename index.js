@@ -25,48 +25,107 @@ CREATE TABLE IF NOT EXISTS users (
 `);
 
 // =========================
-// 🔐 API SECURITY
+// 🔐 AUTH MIDDLEWARE
 // =========================
 
 function verifyKey(req, res, next) {
     if (req.headers["x-api-key"] !== process.env.API_KEY) {
-        return res.status(401).json({ error: "Unauthorized" });
+        return res.status(401).json({ success: false, error: "Unauthorized" });
     }
     next();
 }
 
 // =========================
-// 🧠 ACCESS CHECK ENGINE
+// 🧠 TEMPLATE SYSTEM (REAL CORE)
+// =========================
+
+const templates = {
+    sprint: `
+You are generating a Roblox Sprint System.
+
+Requirements:
+- Shift to sprint
+- Stamina system
+- Smooth camera FOV change
+- Clean modular Lua code
+- Optimized for performance
+`,
+
+    ui: `
+You are generating a Roblox UI System.
+
+Requirements:
+- Modern UI design
+- Tween animations
+- Scalable UI layout
+- Clean structure
+- Easy to modify
+`,
+
+    combat: `
+You are generating a Roblox Combat System.
+
+Requirements:
+- Hit detection
+- Damage system
+- Cooldowns
+- Server-safe logic
+- Anti-exploit considerations
+`,
+
+    movement: `
+You are generating a Roblox Movement System.
+
+Requirements:
+- Sprint + slide + jump boost
+- Smooth character movement
+- No laggy physics abuse
+- Clean modular design
+`,
+
+    edit: `
+You are editing an existing Roblox script.
+
+Rules:
+- Do NOT rewrite everything unless needed
+- Improve only requested parts
+- Keep original structure where possible
+- Return full updated script
+`
+};
+
+// =========================
+// 🔐 ACCESS CHECK
 // =========================
 
 function checkAccess(userId) {
     return new Promise((resolve) => {
-        db.get("SELECT * FROM users WHERE userId = ?", [userId], (err, row) => {
-            if (!row) return resolve({ ok: false });
+        db.get(
+            "SELECT * FROM users WHERE userId = ?",
+            [userId],
+            (err, row) => {
+                if (!row) return resolve({ ok: false });
 
-            if (Date.now() > row.expiresAt) {
-                return resolve({ ok: false, reason: "expired" });
+                if (Date.now() > row.expiresAt) {
+                    return resolve({ ok: false, reason: "expired" });
+                }
+
+                if (row.uses >= row.maxUses) {
+                    return resolve({ ok: false, reason: "limit" });
+                }
+
+                resolve({ ok: true, row });
             }
-
-            if (row.uses >= row.maxUses) {
-                return resolve({ ok: false, reason: "limit" });
-            }
-
-            resolve({ ok: true, row });
-        });
+        );
     });
 }
 
 // =========================
-// 🤖 AI ENGINE (SAFE WRAPPER)
+// 🤖 AI CALL
 // =========================
 
-async function callAI(prompt, mode = "create") {
+async function callAI(prompt) {
     try {
-        if (!process.env.DEEPSEEK_KEY) {
-            return "-- AI OFFLINE\nprint('no key')";
-        }
-
         const res = await fetch("https://api.deepseek.com/chat/completions", {
             method: "POST",
             headers: {
@@ -78,48 +137,37 @@ async function callAI(prompt, mode = "create") {
                 messages: [
                     {
                         role: "system",
-                        content: "You are a Roblox Lua scripting assistant. Output ONLY code."
+                        content: "You are a Roblox Lua expert. Output ONLY code."
                     },
                     {
                         role: "user",
-                        content: `${mode.toUpperCase()} MODE:\n${prompt}`
+                        content: prompt
                     }
                 ]
             })
         });
 
         const data = await res.json();
-        return data?.choices?.[0]?.message?.content || "-- AI FAILED";
+        return data?.choices?.[0]?.message?.content || "-- AI ERROR";
 
     } catch (err) {
-        return "-- AI ERROR (fallback mode)";
+        return "-- SERVER ERROR";
     }
 }
 
 // =========================
-// ✏️ EDIT ENGINE
-// =========================
-
-function buildEditPrompt(oldScript, request) {
-    return `
-You are editing a Roblox script.
-
-OLD SCRIPT:
-${oldScript}
-
-REQUEST:
-${request}
-
-Return ONLY the updated script.
-`;
-}
-
-// =========================
-// 🌐 GENERATE / EDIT ENDPOINT
+// 🚀 GENERATE ENDPOINT (MAIN)
 // =========================
 
 app.post("/generate", verifyKey, async (req, res) => {
-    const { userId, prompt, mode, existingScript } = req.body;
+    const {
+        userId,
+        code,
+        mode,
+        template,
+        prompt,
+        existingScript
+    } = req.body;
 
     const access = await checkAccess(userId);
 
@@ -131,39 +179,51 @@ app.post("/generate", verifyKey, async (req, res) => {
     }
 
     // increase usage
-    db.run("UPDATE users SET uses = uses + 1 WHERE userId = ?", [userId]);
+    db.run(
+        "UPDATE users SET uses = uses + 1 WHERE userId = ?",
+        [userId]
+    );
 
-    let result;
+    let finalPrompt = "";
 
     // =========================
-    // ✏️ EDIT MODE
+    // 🎯 TEMPLATE MODE
     // =========================
-    if (mode === "edit" && existingScript) {
-        const editPrompt = buildEditPrompt(existingScript, prompt);
-        result = await callAI(editPrompt, "edit");
+
+    if (mode === "edit") {
+        finalPrompt = `
+${templates.edit}
+
+EXISTING SCRIPT:
+${existingScript}
+
+USER REQUEST:
+${prompt}
+`;
+    } else {
+        const templatePrompt = templates[template] || templates.ui;
+
+        finalPrompt = `
+${templatePrompt}
+
+USER REQUEST:
+${prompt}
+`;
     }
 
-    // =========================
-    // 🧠 CREATE MODE
-    // =========================
-    else {
-        result = await callAI(prompt, "create");
-    }
+    const script = await callAI(finalPrompt);
 
-    const newUsesLeft = access.row
-        ? access.row.maxUses - (access.row.uses + 1)
-        : 0;
+    const updatedUses = access.row.uses + 1;
 
     res.json({
         success: true,
-        script: result,
-        mode,
-        usesLeft: newUsesLeft
+        script,
+        usesLeft: access.row.maxUses - updatedUses
     });
 });
 
 // =========================
-// 🔌 VALIDATION ENDPOINT
+// 🔐 VALIDATE ENDPOINT
 // =========================
 
 app.post("/validate", verifyKey, (req, res) => {
@@ -188,7 +248,7 @@ app.post("/validate", verifyKey, (req, res) => {
 });
 
 // =========================
-// 🔁 USE TRACKING (OPTIONAL HARD CHECK)
+// 🔌 USE TRACKING (optional safety endpoint)
 // =========================
 
 app.post("/use", verifyKey, (req, res) => {
@@ -198,7 +258,7 @@ app.post("/use", verifyKey, (req, res) => {
         if (!row) return res.json({ ok: false });
 
         if (row.uses >= row.maxUses) {
-            return res.json({ ok: false, reason: "limit" });
+            return res.json({ ok: false });
         }
 
         db.run("UPDATE users SET uses = uses + 1 WHERE userId = ?", [userId]);
@@ -212,5 +272,5 @@ app.post("/use", verifyKey, (req, res) => {
 // =========================
 
 app.listen(PORT, () => {
-    console.log(`🚀 ScriptForge v7 Backend running on port ${PORT}`);
+    console.log(`🚀 ScriptForge v10 Backend running on port ${PORT}`);
 });
