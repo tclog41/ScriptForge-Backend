@@ -1,220 +1,484 @@
 require("dotenv").config();
 
 const express = require("express");
+const sqlite3 = require("sqlite3").verbose();
 const fs = require("fs");
 const path = require("path");
-const sqlite3 = require("sqlite3").verbose();
 
 const app = express();
-app.use(express.json());
+
+app.use(express.json({ limit: "5mb" }));
 
 const PORT = process.env.PORT || 3000;
 
 const TEMPLATE_FOLDER = path.join(__dirname, "templates");
+
+// ========================================
+// DATABASE
+// ========================================
+
 const db = new sqlite3.Database("./scriptforge.db");
 
-// =========================
-// DB SETUP
-// =========================
-
 db.serialize(() => {
+
     db.run(`
         CREATE TABLE IF NOT EXISTS cache (
             prompt TEXT PRIMARY KEY,
-            script TEXT,
-            createdAt INTEGER
+            script TEXT NOT NULL,
+            createdAt INTEGER NOT NULL
         )
     `);
 
-    db.run(`
-        CREATE TABLE IF NOT EXISTS users (
-            userId TEXT PRIMARY KEY,
-            code TEXT,
-            expiresAt INTEGER,
-            uses INTEGER,
-            maxUses INTEGER
-        )
-    `);
+    console.log("✅ Database Ready");
+
 });
 
-// =========================
-// AUTH
-// =========================
+// ========================================
+// API KEY AUTH
+// ========================================
 
 function verifyKey(req, res, next) {
-    if (req.headers["x-api-key"] !== process.env.API_KEY) {
-        return res.status(401).json({ success: false, error: "Unauthorized" });
+
+    const apiKey = req.headers["x-api-key"];
+
+    if (!apiKey || apiKey !== process.env.API_KEY) {
+        return res.status(401).json({
+            success: false,
+            error: "unauthorized"
+        });
     }
+
     next();
 }
 
-// =========================
-// TEMPLATE LOADER
-// =========================
-
-function loadTemplate(id) {
-    try {
-        const filePath = path.join(TEMPLATE_FOLDER, `${id}.json`);
-        if (!fs.existsSync(filePath)) return null;
-
-        return JSON.parse(fs.readFileSync(filePath, "utf8"));
-    } catch {
-        return null;
-    }
-}
-
-// =========================
-// CACHE SYSTEM
-// =========================
+// ========================================
+// CACHE HELPERS
+// ========================================
 
 function getCache(prompt) {
+
     return new Promise((resolve) => {
+
         db.get(
             "SELECT script FROM cache WHERE prompt = ?",
             [prompt],
             (err, row) => {
-                if (err || !row) return resolve(null);
+
+                if (err || !row) {
+                    return resolve(null);
+                }
+
                 resolve(row.script);
+
             }
         );
+
     });
+
 }
 
 function saveCache(prompt, script) {
+
     db.run(
-        "INSERT OR REPLACE INTO cache (prompt, script, createdAt) VALUES (?, ?, ?)",
-        [prompt, script, Date.now()]
+        `
+        INSERT OR REPLACE INTO cache
+        (prompt, script, createdAt)
+        VALUES (?, ?, ?)
+        `,
+        [
+            prompt,
+            script,
+            Date.now()
+        ]
     );
+
 }
 
-// =========================
-// AI (DeepSeek)
-// =========================
+// ========================================
+// TEMPLATE SEARCH
+// ========================================
 
-async function callAI(prompt) {
+function findTemplate(prompt) {
+
     try {
-        const res = await fetch("https://api.deepseek.com/chat/completions", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${process.env.DEEPSEEK_KEY}`
-            },
-            body: JSON.stringify({
-                model: "deepseek-chat",
-                messages: [
-                    {
-                        role: "system",
-                        content: "You are a Roblox Lua expert. Output ONLY working Lua code."
-                    },
-                    {
-                        role: "user",
-                        content: prompt
-                    }
-                ]
-            })
-        });
 
-        const data = await res.json();
-        return data?.choices?.[0]?.message?.content || "-- AI ERROR";
-
-    } catch {
-        return "-- SERVER ERROR";
-    }
-}
-
-// =========================
-// GENERATE ENDPOINT
-// =========================
-
-app.post("/generate", verifyKey, async (req, res) => {
-    const { template, prompt } = req.body;
-
-    const tpl = loadTemplate(template);
-
-    // =========================
-    // TEMPLATE EXISTS
-    // =========================
-    if (tpl) {
-
-        if (tpl.type === "static") {
-            return res.json({
-                success: true,
-                source: "template",
-                script: tpl.script
-            });
-        }
-
-        const aiPrompt = tpl.prompt + "\n\nUSER REQUEST:\n" + prompt;
-        const script = await callAI(aiPrompt);
-
-        return res.json({
-            success: true,
-            source: "ai-template",
-            script
-        });
-    }
-
-    // =========================
-    // CACHE
-    // =========================
-    const cached = await getCache(prompt);
-    if (cached) {
-        return res.json({
-            success: true,
-            source: "cache",
-            script: cached
-        });
-    }
-
-    // =========================
-    // AI FALLBACK
-    // =========================
-    const script = await callAI(prompt);
-    saveCache(prompt, script);
-
-    return res.json({
-        success: true,
-        source: "ai-fallback",
-        script
-    });
-});
-
-// =========================
-// TEMPLATE LIST
-// =========================
-
-app.get("/templates", verifyKey, (req, res) => {
-    try {
         const files = fs.readdirSync(TEMPLATE_FOLDER);
 
-        const templates = files
-            .filter(f => f.endsWith(".json"))
-            .map(file => {
-                const id = file.replace(".json", "");
-                const data = loadTemplate(id);
+        let bestMatch = null;
+        let bestScore = 0;
 
-                return {
-                    id,
-                    name: data?.name || id,
-                    type: data?.type || "ai"
-                };
+        for (const file of files) {
+
+            if (!file.endsWith(".json")) continue;
+
+            const fullPath = path.join(
+                TEMPLATE_FOLDER,
+                file
+            );
+
+            const template = JSON.parse(
+                fs.readFileSync(fullPath, "utf8")
+            );
+
+            let score = 0;
+
+            const keywords =
+                template.keywords || [];
+
+            for (const keyword of keywords) {
+
+                if (
+                    prompt.includes(
+                        keyword.toLowerCase()
+                    )
+                ) {
+                    score++;
+                }
+
+            }
+
+            if (score > bestScore) {
+
+                bestScore = score;
+                bestMatch = template;
+
+            }
+
+        }
+
+        if (
+            bestMatch &&
+            bestScore > 0 &&
+            bestMatch.script
+        ) {
+
+            return {
+                found: true,
+                template: bestMatch
+            };
+
+        }
+
+        return {
+            found: false
+        };
+
+    } catch (err) {
+
+        console.error(err);
+
+        return {
+            found: false
+        };
+
+    }
+
+}
+
+// ========================================
+// DEEPSEEK
+// ========================================
+
+async function callAI(prompt) {
+
+    try {
+
+        const response = await fetch(
+            "https://api.deepseek.com/chat/completions",
+            {
+                method: "POST",
+
+                headers: {
+                    "Content-Type":
+                        "application/json",
+
+                    "Authorization":
+                        `Bearer ${process.env.DEEPSEEK_KEY}`
+                },
+
+                body: JSON.stringify({
+
+                    model: "deepseek-chat",
+
+                    messages: [
+
+                        {
+                            role: "system",
+
+                            content: `
+You are an expert Roblox Lua developer.
+
+Rules:
+
+- Output ONLY Roblox Lua code.
+- No markdown.
+- No explanations.
+- No code fences.
+- Roblox Studio compatible.
+- Production-ready code.
+- Return the complete script.
+`
+                        },
+
+                        {
+                            role: "user",
+                            content: prompt
+                        }
+
+                    ]
+
+                })
+
+            }
+        );
+
+        const data =
+            await response.json();
+
+        return (
+            data?.choices?.[0]?.message?.content ||
+            "-- AI_GENERATION_FAILED"
+        );
+
+    } catch (err) {
+
+        console.error(err);
+
+        return "-- AI_SERVER_ERROR";
+
+    }
+
+}
+
+// ========================================
+// GENERATE
+// ========================================
+
+app.post(
+    "/generate",
+    verifyKey,
+    async (req, res) => {
+
+        try {
+
+            const prompt =
+                (
+                    req.body.prompt || ""
+                )
+                    .trim()
+                    .toLowerCase();
+
+            if (!prompt) {
+
+                return res.json({
+                    success: false,
+                    error: "missing_prompt"
+                });
+
+            }
+
+            console.log(
+                `🔍 Request: ${prompt}`
+            );
+
+            // =================================
+            // STEP 1
+            // TEMPLATE SEARCH
+            // =================================
+
+            const templateResult =
+                findTemplate(prompt);
+
+            if (templateResult.found) {
+
+                console.log(
+                    `📦 Template Match: ${templateResult.template.name}`
+                );
+
+                return res.json({
+
+                    success: true,
+
+                    source: "template",
+
+                    template:
+                        templateResult.template.name,
+
+                    script:
+                        templateResult.template.script
+
+                });
+
+            }
+
+            // =================================
+            // STEP 2
+            // CACHE
+            // =================================
+
+            const cached =
+                await getCache(prompt);
+
+            if (cached) {
+
+                console.log(
+                    "⚡ Cache Hit"
+                );
+
+                return res.json({
+
+                    success: true,
+
+                    source: "cache",
+
+                    script: cached
+
+                });
+
+            }
+
+            // =================================
+            // STEP 3
+            // AI
+            // =================================
+
+            console.log(
+                "🤖 AI Generation"
+            );
+
+            const script =
+                await callAI(prompt);
+
+            saveCache(
+                prompt,
+                script
+            );
+
+            return res.json({
+
+                success: true,
+
+                source: "ai",
+
+                script
+
             });
 
-        res.json({ success: true, templates });
+        } catch (err) {
 
-    } catch {
-        res.json({ success: false, error: "failed_to_load_templates" });
+            console.error(err);
+
+            return res.status(500).json({
+
+                success: false,
+
+                error: "server_error"
+
+            });
+
+        }
+
     }
-});
+);
 
-// =========================
-// HEALTH
-// =========================
+// ========================================
+// TEMPLATE LIST
+// ========================================
+
+app.get(
+    "/templates",
+    verifyKey,
+    (req, res) => {
+
+        try {
+
+            const files =
+                fs.readdirSync(
+                    TEMPLATE_FOLDER
+                );
+
+            const templates = [];
+
+            for (const file of files) {
+
+                if (
+                    !file.endsWith(".json")
+                ) continue;
+
+                try {
+
+                    const template =
+                        JSON.parse(
+                            fs.readFileSync(
+                                path.join(
+                                    TEMPLATE_FOLDER,
+                                    file
+                                ),
+                                "utf8"
+                            )
+                        );
+
+                    templates.push({
+
+                        id: file.replace(
+                            ".json",
+                            ""
+                        ),
+
+                        name:
+                            template.name ||
+                            file
+
+                    });
+
+                } catch {}
+
+            }
+
+            res.json({
+
+                success: true,
+
+                templates
+
+            });
+
+        } catch (err) {
+
+            res.json({
+
+                success: false,
+
+                error:
+                    "failed_to_load_templates"
+
+            });
+
+        }
+
+    }
+);
+
+// ========================================
+// HEALTH CHECK
+// ========================================
 
 app.get("/", (req, res) => {
-    res.send("ScriptForge Backend Running");
+
+    res.send(
+        "🚀 ScriptForge Backend Running"
+    );
+
 });
 
+// ========================================
+// START SERVER
+// ========================================
+
 app.listen(PORT, () => {
-    console.log(`Server running on ${PORT}`);
+
+    console.log(
+        `🚀 ScriptForge running on port ${PORT}`
+    );
+
 });
