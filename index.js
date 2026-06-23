@@ -3,6 +3,7 @@ require("dotenv").config();
 const express = require("express");
 const sqlite3 = require("sqlite3").verbose();
 const crypto = require("crypto");
+const fetch = require("node-fetch");
 const { Client, GatewayIntentBits } = require("discord.js");
 
 const app = express();
@@ -25,40 +26,14 @@ CREATE TABLE IF NOT EXISTS users (
 `);
 
 db.run(`
-CREATE TABLE IF NOT EXISTS raffles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    active INTEGER,
-    locked INTEGER,
-    entries TEXT,
-    endTime INTEGER
+CREATE TABLE IF NOT EXISTS memory (
+    userId TEXT PRIMARY KEY,
+    context TEXT
 )
 `);
 
 // =========================
-// 🧠 TEMPLATE SYSTEM (CORE FEATURE)
-// =========================
-
-const templates = {
-    sprint: `-- Sprint System
-local speed = 24
-game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = speed
-print("Sprint loaded")`,
-
-    combat: `-- Combat System
-print("Combat system ready")
--- attack logic here`,
-
-    ui: `-- UI System
-local gui = Instance.new("ScreenGui")
-gui.Parent = game.Players.LocalPlayer.PlayerGui`,
-
-    inventory: `-- Inventory System
-local inventory = {}
-print("Inventory ready")`
-};
-
-// =========================
-// 🔐 API KEY CHECK
+// 🔐 VERIFY API KEY
 // =========================
 
 function verifyKey(req, res, next) {
@@ -69,35 +44,135 @@ function verifyKey(req, res, next) {
 }
 
 // =========================
-// ⚡ SIMPLE RATE LIMIT
+// 🧠 SIMPLE INTENT DETECTOR
 // =========================
 
-const requests = {};
+function detectIntent(prompt) {
+    const p = prompt.toLowerCase();
 
-function rateLimit(ip) {
-    const now = Date.now();
-    if (!requests[ip]) requests[ip] = [];
-
-    requests[ip] = requests[ip].filter(t => now - t < 60000);
-
-    if (requests[ip].length >= 50) return false;
-
-    requests[ip].push(now);
-    return true;
-}
-
-app.use((req, res, next) => {
-    const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
-
-    if (!rateLimit(ip)) {
-        return res.status(429).json({ error: "Too many requests" });
+    if (p.includes("improve") || p.includes("fix") || p.includes("optimize")) {
+        return "edit";
     }
 
-    next();
+    if (p.includes("sprint") || p.includes("combat") || p.includes("ui") || p.includes("inventory")) {
+        return "template";
+    }
+
+    return "ai";
+}
+
+// =========================
+// 🧠 TEMPLATE ENGINE
+// =========================
+
+const templates = {
+    sprint: `-- Sprint System
+local speed = 24
+game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = speed`,
+
+    combat: `-- Combat System
+print("Combat ready")`,
+
+    ui: `-- UI System
+local gui = Instance.new("ScreenGui")
+gui.Parent = game.Players.LocalPlayer.PlayerGui`,
+
+    inventory: `-- Inventory System
+local inv = {}
+print("Inventory ready")`
+};
+
+// =========================
+// 🤖 AI CALL (DEEPSEEK READY)
+// =========================
+
+async function callAI(prompt, context = "", mode = "create") {
+    // ⚠️ placeholder endpoint (swap with real DeepSeek later)
+    // You can replace this with OpenAI or DeepSeek API
+
+    const response = await fetch("https://api.deepseek.com/chat/completions", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.DEEPSEEK_KEY || ""}`
+        },
+        body: JSON.stringify({
+            model: "deepseek-chat",
+            messages: [
+                { role: "system", content: "You are a Roblox Lua expert." },
+                { role: "user", content: context + "\n\n" + prompt }
+            ]
+        })
+    }).catch(() => null);
+
+    if (!response) {
+        return `-- AI OFFLINE FALLBACK\nprint("No AI available")`;
+    }
+
+    const data = await response.json();
+
+    return data?.choices?.[0]?.message?.content || "-- AI FAILED";
+}
+
+// =========================
+// 🔌 GENERATE ENDPOINT (v5 CORE)
+// =========================
+
+app.post("/generate", verifyKey, async (req, res) => {
+    const { userId, prompt } = req.body;
+
+    const intent = detectIntent(prompt);
+
+    // =========================
+    // 🧠 TEMPLATE FIRST
+    // =========================
+
+    if (intent === "template") {
+        const key = Object.keys(templates).find(t =>
+            prompt.toLowerCase().includes(t)
+        );
+
+        if (key) {
+            return res.json({
+                script: templates[key],
+                source: "template"
+            });
+        }
+    }
+
+    // =========================
+    // 🧠 MEMORY LOAD
+    // =========================
+
+    let context = "";
+
+    db.get("SELECT context FROM memory WHERE userId = ?", [userId], (err, row) => {
+        if (row) context = row.context || "";
+    });
+
+    // =========================
+    // 🤖 AI / EDIT MODE
+    // =========================
+
+    let mode = intent === "edit" ? "edit" : "create";
+
+    const ai = await callAI(prompt, context, mode);
+
+    // Save memory (simple overwrite)
+    db.run(
+        "INSERT OR REPLACE INTO memory (userId, context) VALUES (?, ?)",
+        [userId, prompt]
+    );
+
+    res.json({
+        script: ai,
+        source: "ai",
+        mode
+    });
 });
 
 // =========================
-// 🔐 VALIDATE ACCESS
+// 🔐 VALIDATE
 // =========================
 
 app.post("/validate", verifyKey, (req, res) => {
@@ -110,7 +185,7 @@ app.post("/validate", verifyKey, (req, res) => {
             if (!row) return res.json({ valid: false });
 
             if (Date.now() > row.expiresAt) {
-                return res.json({ valid: false, reason: "expired" });
+                return res.json({ valid: false });
             }
 
             res.json({
@@ -129,60 +204,18 @@ app.post("/use", verifyKey, (req, res) => {
     const { userId } = req.body;
 
     db.get("SELECT * FROM users WHERE userId = ?", [userId], (err, row) => {
-        if (!row) return res.json({ ok: false });
-
-        if (row.uses >= row.maxUses) {
-            return res.json({ ok: false, reason: "limit" });
+        if (!row || row.uses >= row.maxUses) {
+            return res.json({ ok: false });
         }
 
-        db.run(
-            "UPDATE users SET uses = uses + 1 WHERE userId = ?",
-            [userId]
-        );
+        db.run("UPDATE users SET uses = uses + 1 WHERE userId = ?", [userId]);
 
         res.json({ ok: true });
     });
 });
 
 // =========================
-// 🤖 GENERATION (TEMPLATE-FIRST SYSTEM)
-// =========================
-
-app.post("/generate", verifyKey, (req, res) => {
-    const { prompt, mode, genre } = req.body;
-
-    // 🔥 STEP 1 — TEMPLATE FIRST (FREE + FAST)
-    if (genre && templates[genre]) {
-        return res.json({
-            script: templates[genre],
-            source: "template"
-        });
-    }
-
-    // 🔥 STEP 2 — AI FALLBACK (PLACEHOLDER FOR DEEPSEEK)
-    const aiOutput = `
--- AI GENERATED SCRIPT
--- Prompt: ${prompt}
-
-print("Generated system from AI fallback")
-`;
-
-    res.json({
-        script: aiOutput,
-        source: "ai"
-    });
-});
-
-// =========================
-// 🔑 CODE GENERATOR
-// =========================
-
-function generateCode() {
-    return crypto.randomBytes(6).toString("hex");
-}
-
-// =========================
-// 🤖 DISCORD BOT
+// 🤖 DISCORD BOT (same service)
 // =========================
 
 const client = new Client({
@@ -197,128 +230,57 @@ function isAdmin(id) {
     return id === process.env.ADMIN_ID;
 }
 
-// =========================
-// 🎟️ RAFFLE SYSTEM
-// =========================
-
-function createRaffle(durationMs, cb) {
-    db.run(
-        "INSERT INTO raffles (active, locked, entries, endTime) VALUES (1,0,'[]',?)",
-        [Date.now() + durationMs],
-        function () {
-            cb(this.lastID);
-        }
-    );
-}
-
-function getRaffle(id, cb) {
-    db.get("SELECT * FROM raffles WHERE id = ?", [id], cb);
+function generateCode() {
+    return crypto.randomBytes(6).toString("hex");
 }
 
 // =========================
-// DISCORD COMMANDS
+// 🎟️ RAFFLE (simple v5 version)
 // =========================
 
-client.on("messageCreate", async (message) => {
-    if (message.author.bot) return;
+let entries = [];
 
-    const args = message.content.trim().split(/ +/);
-    const cmd = args.shift().toLowerCase();
+client.on("messageCreate", async (msg) => {
+    if (msg.author.bot) return;
 
-    // ENTER RAFFLE
+    const args = msg.content.split(" ");
+    const cmd = args[0];
+
     if (cmd === "!enterraffle") {
-        db.get("SELECT * FROM raffles WHERE active = 1 ORDER BY id DESC LIMIT 1", [], (err, raffle) => {
-            if (!raffle || raffle.locked) return message.reply("❌ No active raffle.");
-
-            let entries = JSON.parse(raffle.entries);
-
-            if (entries.includes(message.author.id)) {
-                return message.reply("⚠️ Already entered.");
-            }
-
-            entries.push(message.author.id);
-
-            db.run(
-                "UPDATE raffles SET entries = ? WHERE id = ?",
-                [JSON.stringify(entries), raffle.id]
-            );
-
-            message.reply("✅ Entered raffle!");
-        });
+        if (!entries.includes(msg.author.id)) {
+            entries.push(msg.author.id);
+            msg.reply("✅ Entered raffle");
+        }
     }
 
-    // START RAFFLE
-    if (cmd === "!raffle" && args[0] === "start") {
-        if (!isAdmin(message.author.id)) return;
+    if (cmd === "!raffle") {
+        if (!isAdmin(msg.author.id)) return;
 
-        const minutes = parseInt(args[1]) || 60;
+        const winner = entries[Math.floor(Math.random() * entries.length)];
 
-        createRaffle(minutes * 60000, (raffleId) => {
-            message.channel.send(`🎟️ Raffle started (#${raffleId})`);
+        const code = generateCode();
 
-            setTimeout(() => {
-                getRaffle(raffleId, (err, raffle) => {
-                    if (!raffle) return;
-
-                    let entries = JSON.parse(raffle.entries);
-
-                    if (entries.length === 0) {
-                        return message.channel.send("❌ No entries.");
-                    }
-
-                    const winner = entries[Math.floor(Math.random() * entries.length)];
-
-                    message.channel.send(`🎉 Winner: <@${winner}>`);
-
-                    const code = generateCode();
-
-                    db.run(
-                        `INSERT OR REPLACE INTO users (userId, code, expiresAt, uses, maxUses)
-                         VALUES (?, ?, ?, 0, 10)`,
-                        [
-                            winner,
-                            code,
-                            Date.now() + 24 * 60 * 60 * 1000
-                        ]
-                    );
-
-                    client.users.fetch(winner).then(user => {
-                        user.send(`
-🎉 SCRIPTFORGE ACCESS GRANTED 🎉
-
-🔑 Code: ${code}
-⏳ Duration: 24 hours
-⚙️ Uses: 10 max
-
-⚠️ This is an early alpha build.
-Expect bugs and unfinished features.
-                        `);
-                    });
-                });
-            }, minutes * 60000);
-        });
-    }
-
-    // HELP
-    if (cmd === "!help") {
-        return message.reply(
-            isAdmin(message.author.id)
-                ? "👑 Admin: !raffle start <mins>"
-                : "📜 User: !enterraffle"
+        db.run(
+            "INSERT OR REPLACE INTO users VALUES (?,?,?,?,?)",
+            [winner, code, Date.now() + 86400000, 0, 10]
         );
+
+        msg.channel.send(`🎉 Winner: <@${winner}>`);
+
+        client.users.fetch(winner).then(u => {
+            u.send(`🎉 You won access!\nCode: ${code}\n10 uses / 24h`);
+        });
+
+        entries = [];
     }
 });
 
 // =========================
-// START SERVER
+// START
 // =========================
 
 app.listen(process.env.PORT || 3000, () => {
-    console.log("🚀 ScriptForge Backend v4 Running");
+    console.log("🚀 ScriptForge v5 running");
 });
-
-// =========================
-// START BOT
-// =========================
 
 client.login(process.env.BOT_TOKEN);
