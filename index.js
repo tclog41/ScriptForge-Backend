@@ -14,6 +14,7 @@ const PORT = process.env.PORT || 3000;
 
 const db = new sqlite3.Database("./scriptforge.db");
 
+// USERS
 db.run(`
 CREATE TABLE IF NOT EXISTS users (
     userId TEXT PRIMARY KEY,
@@ -21,6 +22,15 @@ CREATE TABLE IF NOT EXISTS users (
     expiresAt INTEGER,
     uses INTEGER DEFAULT 0,
     maxUses INTEGER DEFAULT 10
+)
+`);
+
+// TEMPLATES (NEW IN v11)
+db.run(`
+CREATE TABLE IF NOT EXISTS templates (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    prompt TEXT
 )
 `);
 
@@ -35,64 +45,12 @@ function verifyKey(req, res, next) {
     next();
 }
 
-// =========================
-// 🧠 TEMPLATE SYSTEM (REAL CORE)
-// =========================
-
-const templates = {
-    sprint: `
-You are generating a Roblox Sprint System.
-
-Requirements:
-- Shift to sprint
-- Stamina system
-- Smooth camera FOV change
-- Clean modular Lua code
-- Optimized for performance
-`,
-
-    ui: `
-You are generating a Roblox UI System.
-
-Requirements:
-- Modern UI design
-- Tween animations
-- Scalable UI layout
-- Clean structure
-- Easy to modify
-`,
-
-    combat: `
-You are generating a Roblox Combat System.
-
-Requirements:
-- Hit detection
-- Damage system
-- Cooldowns
-- Server-safe logic
-- Anti-exploit considerations
-`,
-
-    movement: `
-You are generating a Roblox Movement System.
-
-Requirements:
-- Sprint + slide + jump boost
-- Smooth character movement
-- No laggy physics abuse
-- Clean modular design
-`,
-
-    edit: `
-You are editing an existing Roblox script.
-
-Rules:
-- Do NOT rewrite everything unless needed
-- Improve only requested parts
-- Keep original structure where possible
-- Return full updated script
-`
-};
+function verifyAdmin(req, res, next) {
+    if (req.headers["x-admin-key"] !== process.env.ADMIN_KEY) {
+        return res.status(401).json({ success: false, error: "Admin only" });
+    }
+    next();
+}
 
 // =========================
 // 🔐 ACCESS CHECK
@@ -100,69 +58,71 @@ Rules:
 
 function checkAccess(userId) {
     return new Promise((resolve) => {
-        db.get(
-            "SELECT * FROM users WHERE userId = ?",
-            [userId],
-            (err, row) => {
-                if (!row) return resolve({ ok: false });
+        db.get("SELECT * FROM users WHERE userId = ?", [userId], (err, row) => {
+            if (!row) return resolve({ ok: false });
 
-                if (Date.now() > row.expiresAt) {
-                    return resolve({ ok: false, reason: "expired" });
-                }
-
-                if (row.uses >= row.maxUses) {
-                    return resolve({ ok: false, reason: "limit" });
-                }
-
-                resolve({ ok: true, row });
+            if (Date.now() > row.expiresAt) {
+                return resolve({ ok: false, reason: "expired" });
             }
-        );
+
+            if (row.uses >= row.maxUses) {
+                return resolve({ ok: false, reason: "limit" });
+            }
+
+            resolve({ ok: true, row });
+        });
     });
 }
 
 // =========================
-// 🤖 AI CALL
+// 🤖 AI ENGINE
 // =========================
 
 async function callAI(prompt) {
-    try {
-        const res = await fetch("https://api.deepseek.com/chat/completions", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${process.env.DEEPSEEK_KEY}`
-            },
-            body: JSON.stringify({
-                model: "deepseek-chat",
-                messages: [
-                    {
-                        role: "system",
-                        content: "You are a Roblox Lua expert. Output ONLY code."
-                    },
-                    {
-                        role: "user",
-                        content: prompt
-                    }
-                ]
-            })
-        });
+    const res = await fetch("https://api.deepseek.com/chat/completions", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${process.env.DEEPSEEK_KEY}`
+        },
+        body: JSON.stringify({
+            model: "deepseek-chat",
+            messages: [
+                {
+                    role: "system",
+                    content: "You are a Roblox Lua expert. Output ONLY clean code."
+                },
+                {
+                    role: "user",
+                    content: prompt
+                }
+            ]
+        })
+    });
 
-        const data = await res.json();
-        return data?.choices?.[0]?.message?.content || "-- AI ERROR";
-
-    } catch (err) {
-        return "-- SERVER ERROR";
-    }
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content || "-- AI ERROR";
 }
 
 // =========================
-// 🚀 GENERATE ENDPOINT (MAIN)
+// 🧠 LOAD TEMPLATE (DB-BASED)
+// =========================
+
+function getTemplate(id) {
+    return new Promise((resolve) => {
+        db.get("SELECT * FROM templates WHERE id = ?", [id], (err, row) => {
+            resolve(row);
+        });
+    });
+}
+
+// =========================
+// 🚀 GENERATE (MAIN ENDPOINT)
 // =========================
 
 app.post("/generate", verifyKey, async (req, res) => {
     const {
         userId,
-        code,
         mode,
         template,
         prompt,
@@ -178,52 +138,97 @@ app.post("/generate", verifyKey, async (req, res) => {
         });
     }
 
-    // increase usage
-    db.run(
-        "UPDATE users SET uses = uses + 1 WHERE userId = ?",
-        [userId]
-    );
+    // usage tracking
+    db.run("UPDATE users SET uses = uses + 1 WHERE userId = ?", [userId]);
 
-    let finalPrompt = "";
-
-    // =========================
-    // 🎯 TEMPLATE MODE
-    // =========================
+    let templateData = null;
 
     if (mode === "edit") {
-        finalPrompt = `
-${templates.edit}
+        templateData = {
+            prompt: `
+You are editing a Roblox script.
+
+Rules:
+- Only modify what is needed
+- Keep structure clean
+- Return full updated script
 
 EXISTING SCRIPT:
 ${existingScript}
 
 USER REQUEST:
 ${prompt}
-`;
+`
+        };
     } else {
-        const templatePrompt = templates[template] || templates.ui;
+        templateData = await getTemplate(template);
 
-        finalPrompt = `
-${templatePrompt}
+        if (!templateData) {
+            return res.json({
+                success: false,
+                error: "template_not_found"
+            });
+        }
+
+        templateData.prompt = `
+${templateData.prompt}
 
 USER REQUEST:
 ${prompt}
 `;
     }
 
-    const script = await callAI(finalPrompt);
-
-    const updatedUses = access.row.uses + 1;
+    const script = await callAI(templateData.prompt);
 
     res.json({
         success: true,
         script,
-        usesLeft: access.row.maxUses - updatedUses
+        usesLeft: access.row.maxUses - access.row.uses - 1
     });
 });
 
 // =========================
-// 🔐 VALIDATE ENDPOINT
+// 📋 LIST TEMPLATES (NEW)
+// =========================
+
+app.get("/templates", verifyKey, (req, res) => {
+    db.all("SELECT id, name FROM templates", [], (err, rows) => {
+        res.json({
+            success: true,
+            templates: rows
+        });
+    });
+});
+
+// =========================
+// 🧠 ADD TEMPLATE (ADMIN ONLY)
+// =========================
+
+app.post("/admin/template/add", verifyAdmin, (req, res) => {
+    const { id, name, prompt } = req.body;
+
+    db.run(
+        "INSERT OR REPLACE INTO templates (id, name, prompt) VALUES (?, ?, ?)",
+        [id, name, prompt]
+    );
+
+    res.json({ success: true });
+});
+
+// =========================
+// ❌ DELETE TEMPLATE
+// =========================
+
+app.post("/admin/template/delete", verifyAdmin, (req, res) => {
+    const { id } = req.body;
+
+    db.run("DELETE FROM templates WHERE id = ?", [id]);
+
+    res.json({ success: true });
+});
+
+// =========================
+// 🔐 VALIDATE CODE
 // =========================
 
 app.post("/validate", verifyKey, (req, res) => {
@@ -236,7 +241,7 @@ app.post("/validate", verifyKey, (req, res) => {
             if (!row) return res.json({ valid: false });
 
             if (Date.now() > row.expiresAt) {
-                return res.json({ valid: false, reason: "expired" });
+                return res.json({ valid: false });
             }
 
             res.json({
@@ -248,29 +253,9 @@ app.post("/validate", verifyKey, (req, res) => {
 });
 
 // =========================
-// 🔌 USE TRACKING (optional safety endpoint)
-// =========================
-
-app.post("/use", verifyKey, (req, res) => {
-    const { userId } = req.body;
-
-    db.get("SELECT * FROM users WHERE userId = ?", [userId], (err, row) => {
-        if (!row) return res.json({ ok: false });
-
-        if (row.uses >= row.maxUses) {
-            return res.json({ ok: false });
-        }
-
-        db.run("UPDATE users SET uses = uses + 1 WHERE userId = ?", [userId]);
-
-        res.json({ ok: true });
-    });
-});
-
-// =========================
-// 🚀 START SERVER
+// 🚀 START
 // =========================
 
 app.listen(PORT, () => {
-    console.log(`🚀 ScriptForge v10 Backend running on port ${PORT}`);
+    console.log(`🚀 ScriptForge v11 running on ${PORT}`);
 });
