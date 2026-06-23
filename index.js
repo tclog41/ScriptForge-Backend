@@ -11,21 +11,31 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 const TEMPLATE_FOLDER = path.join(__dirname, "templates");
-
-// =========================
-// DATABASE
-// =========================
-
 const db = new sqlite3.Database("./scriptforge.db");
 
-// create cache table
-db.run(`
-CREATE TABLE IF NOT EXISTS cache (
-    prompt TEXT PRIMARY KEY,
-    script TEXT,
-    createdAt INTEGER
-)
-`);
+// =========================
+// DB SETUP
+// =========================
+
+db.serialize(() => {
+    db.run(`
+        CREATE TABLE IF NOT EXISTS cache (
+            prompt TEXT PRIMARY KEY,
+            script TEXT,
+            createdAt INTEGER
+        )
+    `);
+
+    db.run(`
+        CREATE TABLE IF NOT EXISTS users (
+            userId TEXT PRIMARY KEY,
+            code TEXT,
+            expiresAt INTEGER,
+            uses INTEGER,
+            maxUses INTEGER
+        )
+    `);
+});
 
 // =========================
 // AUTH
@@ -47,10 +57,8 @@ function loadTemplate(id) {
         const filePath = path.join(TEMPLATE_FOLDER, `${id}.json`);
         if (!fs.existsSync(filePath)) return null;
 
-        const raw = fs.readFileSync(filePath, "utf8");
-        return JSON.parse(raw);
-
-    } catch (err) {
+        return JSON.parse(fs.readFileSync(filePath, "utf8"));
+    } catch {
         return null;
     }
 }
@@ -80,7 +88,7 @@ function saveCache(prompt, script) {
 }
 
 // =========================
-// AI CALL (DeepSeek)
+// AI (DeepSeek)
 // =========================
 
 async function callAI(prompt) {
@@ -96,7 +104,7 @@ async function callAI(prompt) {
                 messages: [
                     {
                         role: "system",
-                        content: "You are a Roblox Lua expert. Output ONLY working Lua code. No explanations."
+                        content: "You are a Roblox Lua expert. Output ONLY working Lua code."
                     },
                     {
                         role: "user",
@@ -109,26 +117,25 @@ async function callAI(prompt) {
         const data = await res.json();
         return data?.choices?.[0]?.message?.content || "-- AI ERROR";
 
-    } catch (err) {
+    } catch {
         return "-- SERVER ERROR";
     }
 }
 
 // =========================
-// MAIN GENERATE SYSTEM
+// GENERATE ENDPOINT
 // =========================
 
 app.post("/generate", verifyKey, async (req, res) => {
     const { template, prompt } = req.body;
 
-    // =========================
-    // 1. TEMPLATE CHECK
-    // =========================
     const tpl = loadTemplate(template);
 
+    // =========================
+    // TEMPLATE EXISTS
+    // =========================
     if (tpl) {
 
-        // STATIC TEMPLATE
         if (tpl.type === "static") {
             return res.json({
                 success: true,
@@ -137,7 +144,6 @@ app.post("/generate", verifyKey, async (req, res) => {
             });
         }
 
-        // AI TEMPLATE
         const aiPrompt = tpl.prompt + "\n\nUSER REQUEST:\n" + prompt;
         const script = await callAI(aiPrompt);
 
@@ -149,10 +155,9 @@ app.post("/generate", verifyKey, async (req, res) => {
     }
 
     // =========================
-    // 2. CACHE CHECK
+    // CACHE
     // =========================
     const cached = await getCache(prompt);
-
     if (cached) {
         return res.json({
             success: true,
@@ -162,11 +167,9 @@ app.post("/generate", verifyKey, async (req, res) => {
     }
 
     // =========================
-    // 3. AI FALLBACK
+    // AI FALLBACK
     // =========================
     const script = await callAI(prompt);
-
-    // save to cache
     saveCache(prompt, script);
 
     return res.json({
@@ -177,7 +180,7 @@ app.post("/generate", verifyKey, async (req, res) => {
 });
 
 // =========================
-// LIST TEMPLATES
+// TEMPLATE LIST
 // =========================
 
 app.get("/templates", verifyKey, (req, res) => {
@@ -197,31 +200,21 @@ app.get("/templates", verifyKey, (req, res) => {
                 };
             });
 
-        res.json({
-            success: true,
-            templates
-        });
+        res.json({ success: true, templates });
 
-    } catch (err) {
-        res.json({
-            success: false,
-            error: "failed_to_load_templates"
-        });
+    } catch {
+        res.json({ success: false, error: "failed_to_load_templates" });
     }
 });
 
 // =========================
-// HEALTH CHECK
+// HEALTH
 // =========================
 
 app.get("/", (req, res) => {
-    res.send("🚀 ScriptForge v11 (Template → Cache → AI)");
+    res.send("ScriptForge Backend Running");
 });
 
-// =========================
-// START SERVER
-// =========================
-
 app.listen(PORT, () => {
-    console.log(`🚀 ScriptForge running on port ${PORT}`);
+    console.log(`Server running on ${PORT}`);
 });
