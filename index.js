@@ -7,43 +7,59 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 // =========================
+// 🔐 ENV
+// =========================
+
+const API_KEY = process.env.API_KEY;
+const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
+const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
+
+// =========================
 // 💾 STORAGE
 // =========================
 
 let users = {};
-let cache = {};
+let inviteCodes = {};
 
-// load users
 if (fs.existsSync("./users.json")) {
     users = JSON.parse(fs.readFileSync("./users.json"));
 }
 
-// =========================
-// 🧠 PROJECT MEMORY
-// =========================
-
-function getProject(userId) {
-    if (!users[userId]) {
-        users[userId] = {
-            expiresAt: Date.now() + 12 * 60 * 60 * 1000,
-            systems: [],
-            modifiers: [],
-            scripts: {},
-            history: []
-        };
-    }
-    return users[userId];
+if (fs.existsSync("./invitecodes.json")) {
+    inviteCodes = JSON.parse(fs.readFileSync("./invitecodes.json"));
 }
 
 function saveUsers() {
     fs.writeFileSync("./users.json", JSON.stringify(users, null, 2));
 }
 
+function saveCodes() {
+    fs.writeFileSync("./invitecodes.json", JSON.stringify(inviteCodes, null, 2));
+}
+
 // =========================
-// 🔐 AUTH
+// ⏳ ACCESS SYSTEM (12 HOURS)
 // =========================
 
-const API_KEY = process.env.API_KEY;
+function getUser(deviceId) {
+    if (!users[deviceId]) {
+        users[deviceId] = {
+            expiresAt: 0,
+            systems: [],
+            history: [],
+            genre: ""
+        };
+    }
+    return users[deviceId];
+}
+
+function isExpired(user) {
+    return Date.now() > user.expiresAt;
+}
+
+// =========================
+// 🔐 MIDDLEWARE
+// =========================
 
 function auth(req, res, next) {
     if (req.body.key !== API_KEY) {
@@ -53,192 +69,159 @@ function auth(req, res, next) {
 }
 
 // =========================
-// 📁 BLUEPRINT FOLDERS (NEW)
+// 🎟️ REDEEM CODE
 // =========================
 
-const blueprints = {
-    movement: {
-        sprint: {
-            base: "-- Sprint System",
-            modifiers: ["ui", "stamina", "mobile"]
-        },
-        crouch: {
-            base: "-- Crouch System",
-            modifiers: ["ui"]
-        }
-    },
+app.post("/redeem", auth, (req, res) => {
+    const { deviceId, code } = req.body;
 
-    ui: {
-        healthbar: {
-            base: "-- Health UI",
-            modifiers: []
-        },
-        inventory: {
-            base: "-- Inventory UI",
-            modifiers: ["drag", "mobile"]
-        }
-    },
-
-    world: {
-        door: {
-            base: "-- Door System",
-            modifiers: ["lock", "key"]
-        }
-    }
-};
-
-// =========================
-// ⚡ CACHE CHECK (FAST PATH)
-// =========================
-
-function getCache(key) {
-    const item = cache[key];
-
-    if (!item) return null;
-    if (Date.now() > item.expiry) {
-        delete cache[key];
-        return null;
+    if (!deviceId || !code) {
+        return res.json({ success: false, error: "Missing data" });
     }
 
-    return item.value;
-}
-
-function setCache(key, value) {
-    cache[key] = {
-        value,
-        expiry: Date.now() + 1000 * 60 * 60 // 1 hour
-    };
-}
-
-// =========================
-// 🔧 MODIFIER ENGINE
-// =========================
-
-function applyModifiers(script, mods) {
-    let out = script;
-
-    if (mods.includes("ui")) out += "\n-- UI attached";
-    if (mods.includes("stamina")) out += "\n-- stamina system";
-    if (mods.includes("mobile")) out += "\n-- mobile support";
-    if (mods.includes("lock")) out += "\n-- lock system";
-
-    return out;
-}
-
-// =========================
-// 🧠 FIND BLUEPRINT (NEW STRUCTURE)
-// =========================
-
-function findBlueprint(system) {
-    for (const folder in blueprints) {
-        if (blueprints[folder][system]) {
-            return {
-                folder,
-                name: system,
-                data: blueprints[folder][system]
-            };
-        }
-    }
-    return null;
-}
-
-// =========================
-// ✏️ EDIT ENGINE (NEW)
-// =========================
-
-function editExisting(project, system, request) {
-    let existing = project.scripts[system];
-
-    if (!existing) return null;
-
-    if (request.includes("faster")) {
-        existing += "\n-- speed increased";
+    if (!inviteCodes[code]) {
+        return res.json({ success: false, error: "Invalid code" });
     }
 
-    if (request.includes("ui")) {
-        existing += "\n-- ui updated";
+    if (inviteCodes[code] === true) {
+        return res.json({ success: false, error: "Code already used" });
     }
 
-    return existing;
-}
+    const user = getUser(deviceId);
+
+    user.expiresAt = Date.now() + 12 * 60 * 60 * 1000;
+
+    inviteCodes[code] = true;
+
+    saveUsers();
+    saveCodes();
+
+    res.json({ success: true });
+});
 
 // =========================
-// 🚀 GENERATE (MAIN ENGINE)
+// 🔓 ACCESS CHECK
 // =========================
 
-app.post("/generate", auth, (req, res) => {
-    const { userId, system, modifiers = [], mode = "create", request = "" } = req.body;
+app.post("/access", auth, (req, res) => {
+    const { deviceId } = req.body;
 
-    const project = getProject(userId);
-
-    const cacheKey = `${userId}-${system}-${modifiers.join("-")}-${mode}`;
-
-    // =========================
-    // ⚡ CACHE HIT
-    // =========================
-
-    const cached = getCache(cacheKey);
-    if (cached) {
-        return res.json({
-            success: true,
-            source: "cache",
-            script: cached
-        });
+    if (!deviceId) {
+        return res.json({ success: false });
     }
 
-    // =========================
-    // ✏️ EDIT MODE
-    // =========================
+    const user = getUser(deviceId);
 
-    if (mode === "edit") {
-        const edited = editExisting(project, system, request);
-
-        if (edited) {
-            setCache(cacheKey, edited);
-            project.scripts[system] = edited;
-            saveUsers();
-
-            return res.json({
-                success: true,
-                source: "edit-engine",
-                script: edited
-            });
-        }
+    if (isExpired(user)) {
+        return res.json({ success: false });
     }
 
-    // =========================
-    // 🧩 BLUEPRINT LOOKUP
-    // =========================
+    res.json({ success: true, user });
+});
 
-    const blueprint = findBlueprint(system);
+// =========================
+// 📦 BLUEPRINT LIST
+// =========================
 
-    if (!blueprint) {
-        return res.json({
-            success: false,
-            error: "No blueprint found (AI fallback reserved)"
-        });
-    }
+const blueprints = [
+    "sprint",
+    "stamina",
+    "crouch",
+    "door",
+    "inventory",
+    "healthbar",
+    "ui",
+    "leaderstats"
+];
 
-    let script = blueprint.data.base;
+app.get("/blueprints", (req, res) => {
+    res.json(blueprints);
+});
 
-    // apply modifiers
-    script = applyModifiers(script, modifiers);
+// =========================
+// 🎮 GENRE SYSTEM
+// =========================
 
-    // save into project memory
-    project.systems.push(system);
-    project.modifiers.push(...modifiers);
-    project.scripts[system] = script;
+app.post("/genre", auth, (req, res) => {
+    const { deviceId, genre } = req.body;
+
+    const user = getUser(deviceId);
+    user.genre = genre;
 
     saveUsers();
 
-    // store cache
-    setCache(cacheKey, script);
+    const recommendations = {
+        Horror: ["sprint", "stamina", "door", "ui"],
+        Simulator: ["inventory", "leaderstats"],
+        FPS: ["sprint", "ui", "healthbar"]
+    };
 
-    return res.json({
-        success: true,
-        source: "blueprint",
-        script
+    res.json({
+        genre,
+        recommendations: recommendations[genre] || []
     });
+});
+
+// =========================
+// 🤖 AI (DEEPSEEK)
+// =========================
+
+app.post("/ai", auth, async (req, res) => {
+    const { deviceId, prompt } = req.body;
+
+    const user = getUser(deviceId);
+
+    if (isExpired(user)) {
+        return res.json({ success: false, error: "Expired" });
+    }
+
+    user.history.push(prompt);
+    if (user.history.length > 10) user.history.shift();
+
+    try {
+        const response = await fetch(DEEPSEEK_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${DEEPSEEK_KEY}`
+            },
+            body: JSON.stringify({
+                model: "deepseek-chat",
+                messages: [
+                    {
+                        role: "system",
+                        content:
+                            "You are ScriptForge AI for Roblox Studio. Output only clean Lua scripts when requested."
+                    },
+                    {
+                        role: "user",
+                        content: `
+Genre: ${user.genre}
+History: ${user.history.join("\n")}
+Request: ${prompt}
+                        `
+                    }
+                ],
+                temperature: 0.4
+            })
+        });
+
+        const data = await response.json();
+
+        const output =
+            data.choices?.[0]?.message?.content || "No response";
+
+        res.json({
+            success: true,
+            output
+        });
+
+    } catch (err) {
+        res.json({
+            success: false,
+            error: "AI request failed"
+        });
+    }
 });
 
 // =========================
@@ -246,5 +229,5 @@ app.post("/generate", auth, (req, res) => {
 // =========================
 
 app.listen(PORT, () => {
-    console.log("ScriptForge v1.1 running on", PORT);
+    console.log("ScriptForge v1.2 running on port", PORT);
 });
