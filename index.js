@@ -7,7 +7,7 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 // =========================
-// 🔐 ENV
+// ENV
 // =========================
 
 const API_KEY = process.env.API_KEY;
@@ -15,7 +15,7 @@ const DEEPSEEK_KEY = process.env.DEEPSEEK_API_KEY;
 const DEEPSEEK_URL = "https://api.deepseek.com/chat/completions";
 
 // =========================
-// 💾 STORAGE
+// STORAGE
 // =========================
 
 let users = {};
@@ -38,27 +38,26 @@ function saveCodes() {
 }
 
 // =========================
-// ⏳ ACCESS SYSTEM (12 HOURS)
+// USER SYSTEM
 // =========================
 
-function getUser(deviceId) {
-    if (!users[deviceId]) {
-        users[deviceId] = {
+function getUser(id) {
+    if (!users[id]) {
+        users[id] = {
             expiresAt: 0,
-            systems: [],
-            history: [],
-            genre: ""
+            genre: "",
+            history: []
         };
     }
-    return users[deviceId];
+    return users[id];
 }
 
-function isExpired(user) {
+function expired(user) {
     return Date.now() > user.expiresAt;
 }
 
 // =========================
-// 🔐 MIDDLEWARE
+// AUTH
 // =========================
 
 function auth(req, res, next) {
@@ -69,26 +68,21 @@ function auth(req, res, next) {
 }
 
 // =========================
-// 🎟️ REDEEM CODE
+// REDEEM
 // =========================
 
 app.post("/redeem", auth, (req, res) => {
     const { deviceId, code } = req.body;
-
-    if (!deviceId || !code) {
-        return res.json({ success: false, error: "Missing data" });
-    }
 
     if (!inviteCodes[code]) {
         return res.json({ success: false, error: "Invalid code" });
     }
 
     if (inviteCodes[code] === true) {
-        return res.json({ success: false, error: "Code already used" });
+        return res.json({ success: false, error: "Used code" });
     }
 
     const user = getUser(deviceId);
-
     user.expiresAt = Date.now() + 12 * 60 * 60 * 1000;
 
     inviteCodes[code] = true;
@@ -100,82 +94,119 @@ app.post("/redeem", auth, (req, res) => {
 });
 
 // =========================
-// 🔓 ACCESS CHECK
+// ACCESS
 // =========================
 
 app.post("/access", auth, (req, res) => {
-    const { deviceId } = req.body;
+    const user = getUser(req.body.deviceId);
 
-    if (!deviceId) {
+    if (expired(user)) {
         return res.json({ success: false });
     }
 
-    const user = getUser(deviceId);
-
-    if (isExpired(user)) {
-        return res.json({ success: false });
-    }
-
-    res.json({ success: true, user });
+    res.json({ success: true });
 });
 
 // =========================
-// 📦 BLUEPRINT LIST
+// BLUEPRINT DATA
 // =========================
 
-const blueprints = [
-    "sprint",
-    "stamina",
-    "crouch",
-    "door",
-    "inventory",
-    "healthbar",
-    "ui",
-    "leaderstats"
-];
+const blueprints = {
+    sprint: {
+        location: "StarterPlayerScripts",
+        code: `local UIS = game:GetService("UserInputService")
+local player = game.Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local hum = char:WaitForChild("Humanoid")
+
+UIS.InputBegan:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.LeftShift then
+		hum.WalkSpeed = 24
+	end
+end)
+
+UIS.InputEnded:Connect(function(input)
+	if input.KeyCode == Enum.KeyCode.LeftShift then
+		hum.WalkSpeed = 16
+	end
+end)`
+    },
+
+    stamina: {
+        location: "StarterGui",
+        code: `local stamina = 100
+while true do
+	wait(1)
+	stamina = math.max(0, stamina - 1)
+	print("Stamina:", stamina)
+end`
+    },
+
+    door: {
+        location: "Workspace",
+        code: `script.Parent.Touched:Connect(function()
+	print("Door triggered")
+end)`
+    }
+};
+
+// =========================
+// LIST BLUEPRINTS
+// =========================
 
 app.get("/blueprints", (req, res) => {
-    res.json(blueprints);
+    res.json(Object.keys(blueprints));
 });
 
 // =========================
-// 🎮 GENRE SYSTEM
+// GET SINGLE BLUEPRINT
+// =========================
+
+app.get("/blueprint/:name", (req, res) => {
+    const bp = blueprints[req.params.name];
+
+    if (!bp) {
+        return res.json({ error: "Not found" });
+    }
+
+    res.json(bp);
+});
+
+// =========================
+// GENRE SYSTEM
 // =========================
 
 app.post("/genre", auth, (req, res) => {
-    const { deviceId, genre } = req.body;
+    const user = getUser(req.body.deviceId);
 
-    const user = getUser(deviceId);
-    user.genre = genre;
+    user.genre = req.body.genre;
 
     saveUsers();
 
-    const recommendations = {
-        Horror: ["sprint", "stamina", "door", "ui"],
-        Simulator: ["inventory", "leaderstats"],
-        FPS: ["sprint", "ui", "healthbar"]
+    const rec = {
+        Horror: ["sprint", "stamina", "door"],
+        FPS: ["sprint", "door"],
+        Simulator: ["stamina"]
     };
 
     res.json({
-        genre,
-        recommendations: recommendations[genre] || []
+        genre: user.genre,
+        recommendations: rec[user.genre] || []
     });
 });
 
 // =========================
-// 🤖 AI (DEEPSEEK)
+// AI (DEEPSEEK PROXY)
 // =========================
 
 app.post("/ai", auth, async (req, res) => {
-    const { deviceId, prompt } = req.body;
+    const user = getUser(req.body.deviceId);
 
-    const user = getUser(deviceId);
-
-    if (isExpired(user)) {
+    if (expired(user)) {
         return res.json({ success: false, error: "Expired" });
     }
 
-    user.history.push(prompt);
+    user.history.push(req.body.prompt);
     if (user.history.length > 10) user.history.shift();
 
     try {
@@ -190,44 +221,32 @@ app.post("/ai", auth, async (req, res) => {
                 messages: [
                     {
                         role: "system",
-                        content:
-                            "You are ScriptForge AI for Roblox Studio. Output only clean Lua scripts when requested."
+                        content: "You are ScriptForge AI for Roblox Studio. Output ONLY Lua scripts."
                     },
                     {
                         role: "user",
-                        content: `
-Genre: ${user.genre}
-History: ${user.history.join("\n")}
-Request: ${prompt}
-                        `
+                        content: req.body.prompt + "\nGenre:" + user.genre
                     }
-                ],
-                temperature: 0.4
+                ]
             })
         });
 
         const data = await response.json();
 
-        const output =
-            data.choices?.[0]?.message?.content || "No response";
-
         res.json({
             success: true,
-            output
+            output: data.choices?.[0]?.message?.content || "No response"
         });
 
-    } catch (err) {
-        res.json({
-            success: false,
-            error: "AI request failed"
-        });
+    } catch (e) {
+        res.json({ success: false, error: "AI failed" });
     }
 });
 
 // =========================
-// 🚀 START
+// START
 // =========================
 
 app.listen(PORT, () => {
-    console.log("ScriptForge v1.2 running on port", PORT);
+    console.log("ScriptForge v1.4 running on", PORT);
 });
