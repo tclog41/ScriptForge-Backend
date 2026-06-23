@@ -1,15 +1,14 @@
 {
   "name": "scriptforge-backend",
   "version": "1.0.0",
-  "description": "ScriptForge AI Backend + Discord Bot + Plugin API",
+  "description": "ScriptForge Backend (Template → Cache → AI)",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.19.2",
-    "discord.js": "^14.16.3",
-    "sqlite3": "^5.1.7",
-    "dotenv": "^16.4.5"
+    "dotenv": "^16.4.5",
+    "sqlite3": "^5.1.7"
   }
 }
