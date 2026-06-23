@@ -1,8 +1,12 @@
 require("dotenv").config();
+
 const express = require("express");
-const crypto = require("crypto");
 const sqlite3 = require("sqlite3").verbose();
+const crypto = require("crypto");
 const { Client, GatewayIntentBits } = require("discord.js");
+
+const app = express();
+app.use(express.json());
 
 // =========================
 // 🧠 DATABASE
@@ -10,7 +14,6 @@ const { Client, GatewayIntentBits } = require("discord.js");
 
 const db = new sqlite3.Database("./scriptforge.db");
 
-// USERS (plugin access system)
 db.run(`
 CREATE TABLE IF NOT EXISTS users (
     userId TEXT PRIMARY KEY,
@@ -21,7 +24,6 @@ CREATE TABLE IF NOT EXISTS users (
 )
 `);
 
-// RAFFLES
 db.run(`
 CREATE TABLE IF NOT EXISTS raffles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,26 +35,41 @@ CREATE TABLE IF NOT EXISTS raffles (
 `);
 
 // =========================
-// 🌐 EXPRESS APP
+// 🧠 TEMPLATE SYSTEM (CORE FEATURE)
 // =========================
 
-const app = express();
-app.use(express.json());
+const templates = {
+    sprint: `-- Sprint System
+local speed = 24
+game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = speed
+print("Sprint loaded")`,
+
+    combat: `-- Combat System
+print("Combat system ready")
+-- attack logic here`,
+
+    ui: `-- UI System
+local gui = Instance.new("ScreenGui")
+gui.Parent = game.Players.LocalPlayer.PlayerGui`,
+
+    inventory: `-- Inventory System
+local inventory = {}
+print("Inventory ready")`
+};
 
 // =========================
 // 🔐 API KEY CHECK
 // =========================
 
 function verifyKey(req, res, next) {
-    const key = req.headers["x-api-key"];
-    if (key !== process.env.API_KEY) {
+    if (req.headers["x-api-key"] !== process.env.API_KEY) {
         return res.status(401).json({ error: "Unauthorized" });
     }
     next();
 }
 
 // =========================
-// 🧠 SIMPLE RATE LIMIT (NO DEPENDENCIES)
+// ⚡ SIMPLE RATE LIMIT
 // =========================
 
 const requests = {};
@@ -63,7 +80,7 @@ function rateLimit(ip) {
 
     requests[ip] = requests[ip].filter(t => now - t < 60000);
 
-    if (requests[ip].length >= 40) return false;
+    if (requests[ip].length >= 50) return false;
 
     requests[ip].push(now);
     return true;
@@ -80,7 +97,7 @@ app.use((req, res, next) => {
 });
 
 // =========================
-// 🔐 VALIDATE ACCESS (PLUGIN LOGIN)
+// 🔐 VALIDATE ACCESS
 // =========================
 
 app.post("/validate", verifyKey, (req, res) => {
@@ -105,7 +122,7 @@ app.post("/validate", verifyKey, (req, res) => {
 });
 
 // =========================
-// 🔌 USE TRACKER (10 LIMIT)
+// 🔌 USE TRACKING
 // =========================
 
 app.post("/use", verifyKey, (req, res) => {
@@ -128,22 +145,32 @@ app.post("/use", verifyKey, (req, res) => {
 });
 
 // =========================
-// 🤖 AI GENERATION ENDPOINT (PLUGIN CORE)
+// 🤖 GENERATION (TEMPLATE-FIRST SYSTEM)
 // =========================
 
 app.post("/generate", verifyKey, (req, res) => {
-    const { prompt, mode } = req.body;
+    const { prompt, mode, genre } = req.body;
 
-    // 🔥 THIS IS WHERE YOU CONNECT DEEPSEEK LATER
-    let output;
-
-    if (mode === "create") {
-        output = `-- CREATED SCRIPT\n-- Prompt: ${prompt}\nprint("System generated script")`;
-    } else {
-        output = `-- EDITED SCRIPT\n-- Prompt: ${prompt}\nprint("System improved script")`;
+    // 🔥 STEP 1 — TEMPLATE FIRST (FREE + FAST)
+    if (genre && templates[genre]) {
+        return res.json({
+            script: templates[genre],
+            source: "template"
+        });
     }
 
-    res.json({ script: output });
+    // 🔥 STEP 2 — AI FALLBACK (PLACEHOLDER FOR DEEPSEEK)
+    const aiOutput = `
+-- AI GENERATED SCRIPT
+-- Prompt: ${prompt}
+
+print("Generated system from AI fallback")
+`;
+
+    res.json({
+        script: aiOutput,
+        source: "ai"
+    });
 });
 
 // =========================
@@ -165,10 +192,6 @@ const client = new Client({
         GatewayIntentBits.MessageContent
     ]
 });
-
-// =========================
-// 🔐 ADMIN CHECK
-// =========================
 
 function isAdmin(id) {
     return id === process.env.ADMIN_ID;
@@ -193,26 +216,7 @@ function getRaffle(id, cb) {
 }
 
 // =========================
-// 🎟️ ENTER RAFFLE
-// =========================
-
-function addEntry(raffle, userId, cb) {
-    let entries = JSON.parse(raffle.entries);
-
-    if (raffle.locked) return cb(false);
-    if (entries.includes(userId)) return cb(false);
-
-    entries.push(userId);
-
-    db.run(
-        "UPDATE raffles SET entries = ? WHERE id = ?",
-        [JSON.stringify(entries), raffle.id],
-        () => cb(true)
-    );
-}
-
-// =========================
-// 💬 DISCORD COMMANDS
+// DISCORD COMMANDS
 // =========================
 
 client.on("messageCreate", async (message) => {
@@ -221,25 +225,29 @@ client.on("messageCreate", async (message) => {
     const args = message.content.trim().split(/ +/);
     const cmd = args.shift().toLowerCase();
 
-    // =========================
     // ENTER RAFFLE
-    // =========================
-
     if (cmd === "!enterraffle") {
         db.get("SELECT * FROM raffles WHERE active = 1 ORDER BY id DESC LIMIT 1", [], (err, raffle) => {
             if (!raffle || raffle.locked) return message.reply("❌ No active raffle.");
 
-            addEntry(raffle, message.author.id, (ok) => {
-                if (!ok) return message.reply("⚠️ Already entered.");
-                message.reply("✅ Entered raffle!");
-            });
+            let entries = JSON.parse(raffle.entries);
+
+            if (entries.includes(message.author.id)) {
+                return message.reply("⚠️ Already entered.");
+            }
+
+            entries.push(message.author.id);
+
+            db.run(
+                "UPDATE raffles SET entries = ? WHERE id = ?",
+                [JSON.stringify(entries), raffle.id]
+            );
+
+            message.reply("✅ Entered raffle!");
         });
     }
 
-    // =========================
     // START RAFFLE
-    // =========================
-
     if (cmd === "!raffle" && args[0] === "start") {
         if (!isAdmin(message.author.id)) return;
 
@@ -276,13 +284,14 @@ client.on("messageCreate", async (message) => {
 
                     client.users.fetch(winner).then(user => {
                         user.send(`
-🎉 YOU WON SCRIPTFORGE ACCESS 🎉
+🎉 SCRIPTFORGE ACCESS GRANTED 🎉
 
 🔑 Code: ${code}
-⏳ 24 hours access
-⚙️ 10 uses max
+⏳ Duration: 24 hours
+⚙️ Uses: 10 max
 
-⚠️ Alpha system — bugs expected
+⚠️ This is an early alpha build.
+Expect bugs and unfinished features.
                         `);
                     });
                 });
@@ -290,25 +299,26 @@ client.on("messageCreate", async (message) => {
         });
     }
 
-    // =========================
     // HELP
-    // =========================
-
     if (cmd === "!help") {
         return message.reply(
             isAdmin(message.author.id)
-                ? "👑 !raffle start <mins>"
-                : "📜 !enterraffle"
+                ? "👑 Admin: !raffle start <mins>"
+                : "📜 User: !enterraffle"
         );
     }
 });
 
 // =========================
-// START SERVER + BOT
+// START SERVER
 // =========================
 
 app.listen(process.env.PORT || 3000, () => {
-    console.log("🚀 Backend running");
+    console.log("🚀 ScriptForge Backend v4 Running");
 });
+
+// =========================
+// START BOT
+// =========================
 
 client.login(process.env.BOT_TOKEN);
