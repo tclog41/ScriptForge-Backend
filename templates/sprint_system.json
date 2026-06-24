@@ -1,0 +1,12 @@
+{
+	"name": "Sprint System",
+	"keywords": [ "sprint", "run", "shift", "speed" ],
+	"files": [
+		{
+			"name": "SprintController",
+			"type": "LocalScript",
+			"parent": "StarterPlayerScripts",
+			"source": "local UIS = game:GetService('UserInputService')\nlocal player = game.Players.LocalPlayer\n\nlocal function hum()\n return (player.Character or player.CharacterAdded:Wait()):WaitForChild('Humanoid')\nend\n\nlocal normal = 16\nlocal sprint = 24\n\nUIS.InputBegan:Connect(function(i,g)\n if g then return end\n if i.KeyCode == Enum.KeyCode.LeftShift then\n  hum().WalkSpeed = sprint\n end\nend)\n\nUIS.InputEnded:Connect(function(i)\n if i.KeyCode == Enum.KeyCode.LeftShift then\n  hum().WalkSpeed = normal\n end\nend)"
+		}
+	]
+}
