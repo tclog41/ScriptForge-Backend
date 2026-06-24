@@ -1,25 +1,50 @@
-function parseKeywords(text) {
-    const tags = [];
+function parse(prompt) {
 
-    if (text.includes("ui")) tags.push("ui");
-    if (text.includes("hud")) tags.push("ui");
+    // 1. clean input
+    let text = prompt
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")   // remove symbols
+        .replace(/\s+/g, " ")           // remove extra spaces
+        .trim();
 
-    if (text.includes("health")) tags.push("health");
+    // 2. split into words
+    let words = text.split(" ");
 
-    if (text.includes("sprint")) tags.push("movement");
-    if (text.includes("run")) tags.push("movement");
+    // 3. remove useless words (stop words)
+    const stopWords = [
+        "a", "the", "to", "for", "of", "and", "can", "you",
+        "make", "me", "my", "please", "really", "good",
+        "system", "script", "roblox", "add", "give", "create"
+    ];
 
-    if (text.includes("combat")) tags.push("combat");
-    if (text.includes("fight")) tags.push("combat");
+    words = words.filter(word => !stopWords.includes(word));
 
-    if (text.includes("inventory")) tags.push("inventory");
+    // 4. remove duplicates
+    const unique = [...new Set(words)];
 
-    if (text.includes("door")) tags.push("door");
+    // 5. detect simple intent tags
+    const tags = [...unique];
+
+    // optional: add inferred tags
+    if (text.includes("ui") || text.includes("interface")) {
+        tags.push("ui");
+    }
+
+    if (text.includes("sprint") || text.includes("run") || text.includes("speed")) {
+        tags.push("movement");
+    }
+
+    if (text.includes("combat") || text.includes("fight") || text.includes("damage")) {
+        tags.push("combat");
+    }
+
+    if (text.includes("health") || text.includes("hp")) {
+        tags.push("health");
+    }
 
     return {
-        raw: text,
         tags
     };
 }
 
-module.exports = { parseKeywords };
+module.exports = { parse };
