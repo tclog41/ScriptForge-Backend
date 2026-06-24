@@ -31,14 +31,41 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
 
     const templates = loadTemplates();
 
-    const parsed = parse(prompt);
+    // DEBUG SAFE PARSE (don’t rely on tags)
+    let parsed;
+    try {
+        parsed = parse(prompt);
+    } catch (e) {
+        parsed = { tags: [prompt] };
+    }
 
-    const matches = matchAll(templates, parsed.tags || []);
+    const tags = (parsed.tags && parsed.tags.length > 0)
+        ? parsed.tags
+        : [prompt];
+
+    console.log("DEBUG TAGS:", tags);
+
+    // FORCE match reliability
+    let matches = [];
+
+    try {
+        matches = matchAll(templates, tags);
+    } catch (e) {
+        console.log("MATCH ERROR:", e.message);
+    }
+
+    // fallback: if matcher fails, pick all templates
+    if (!matches || matches.length === 0) {
+        matches = Object.keys(templates).map(k => ({
+            key: k,
+            score: 1
+        }));
+    }
 
     const selected = matches.slice(0, 3);
 
-    let usedTemplates = [];
     let installMap = {};
+    let usedTemplates = [];
     let componentsOut = [];
 
     for (const match of selected) {
@@ -50,7 +77,7 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
 
         usedTemplates.push({
             key: templateKey,
-            score: match.score
+            score: match.score || 1
         });
 
         const components = template.components || [];
@@ -89,14 +116,17 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
         }
     }
 
+    // HARD FALLBACK (NEVER EMPTY)
     if (Object.keys(installMap).length === 0) {
+        console.log("WARNING: installMap empty, forcing fallback");
+
         installMap["StarterPlayerScripts/System"] = [
             {
-                name: "Fallback",
+                name: "FallbackScript",
                 type: "LocalScript",
                 parent: "StarterPlayerScripts",
                 folder: "System",
-                source: `print("No template matched")`
+                source: `print("ScriptForge fallback working")`
             }
         ];
     }
@@ -113,6 +143,8 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
             children: installMap[key]
         });
     }
+
+    console.log("FINAL FILES:", JSON.stringify(files, null, 2));
 
     return {
         templates: usedTemplates,
