@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 /**
- * Load all JSON templates dynamically
+ * Load all templates from /templates
  */
 function loadTemplates() {
     const templates = {};
@@ -34,30 +34,26 @@ function loadTemplates() {
 }
 
 /**
- * Main builder function
+ * MAIN BUILDER
  */
 function buildFromPrompt(prompt) {
 
-    // 1. load templates every request (safe for now)
     const templates = loadTemplates();
 
-    // 2. parse user input
     const parsed = parse(prompt);
 
-    // 3. match templates using scoring system
     const matches = matchAll(templates, parsed.tags || []);
 
-    // 4. take top 3 results max
     const selected = matches.slice(0, 3);
 
-    let files = [];
     let usedTemplates = [];
 
-    // 5. merge files from selected templates
+    // STEP 4: Smart Installer Map
+    const installMap = {};
+
     for (const match of selected) {
 
         const template = templates[match.key];
-
         if (!template || !template.files) continue;
 
         usedTemplates.push({
@@ -65,22 +61,51 @@ function buildFromPrompt(prompt) {
             score: match.score
         });
 
-        files.push(...template.files);
+        for (const file of template.files) {
+
+            const parent = file.parent || "StarterPlayerScripts";
+            const folder = file.folder || "System";
+
+            const installKey = `${parent}/${folder}`;
+
+            if (!installMap[installKey]) {
+                installMap[installKey] = [];
+            }
+
+            installMap[installKey].push(file);
+        }
     }
 
-    // 6. fallback system (never empty response)
-    if (files.length === 0) {
-        files.push({
-            name: "Fallback",
-            type: "LocalScript",
-            parent: "StarterPlayerScripts",
-            folder: "System",
-            source: `print("No template matched")`
-        });
+    // Fallback (never empty)
+    if (Object.keys(installMap).length === 0) {
+        installMap["StarterPlayerScripts/System"] = [
+            {
+                name: "Fallback",
+                type: "LocalScript",
+                parent: "StarterPlayerScripts",
+                folder: "System",
+                source: `print("No template matched")`
+            }
+        ];
 
         usedTemplates.push({
             key: "fallback",
             score: 0
+        });
+    }
+
+    // Convert map → structured output
+    let files = [];
+
+    for (const installKey in installMap) {
+
+        const [parent, folder] = installKey.split("/");
+
+        files.push({
+            type: "folder",
+            name: folder,
+            parent: parent,
+            children: installMap[installKey]
         });
     }
 
