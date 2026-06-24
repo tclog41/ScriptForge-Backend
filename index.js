@@ -19,7 +19,7 @@ app.post("/generate", (req, res) => {
 
         console.log("FILES:", result.files.length);
 
-        return res.json({
+        res.json({
             success: true,
             templates: result.templates,
             files: result.files,
@@ -28,7 +28,7 @@ app.post("/generate", (req, res) => {
 
     } catch (err) {
         console.log("ERROR:", err);
-        return res.json({
+        res.json({
             success: false,
             error: err.message
         });
