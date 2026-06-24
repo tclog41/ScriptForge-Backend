@@ -1,8 +1,0 @@
-{
-	"id": "ui_base",
-	"name": "UI Base System",
-	"category": "UI",
-	"required": false,
-	"depends": [],
-	"source": "local player = game.Players.LocalPlayer\nlocal gui = Instance.new('ScreenGui')\ngui.Parent = player:WaitForChild('PlayerGui')\nprint('UI Loaded')"
-}

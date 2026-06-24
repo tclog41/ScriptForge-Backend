@@ -1,8 +1,0 @@
-{
-	"id": "movement_base",
-	"name": "Movement Base",
-	"category": "Movement",
-	"required": true,
-	"depends": [],
-	"source": "local Players = game:GetService('Players')\nprint('Movement Base Loaded')"
-}

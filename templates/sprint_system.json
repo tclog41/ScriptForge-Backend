@@ -1,8 +1,0 @@
-{
-	"id": "sprint_system",
-	"name": "Sprint System",
-	"category": "Movement",
-	"required": false,
-	"depends": ["movement_base"],
-	"source": "local UIS = game:GetService('UserInputService')\nlocal player = game.Players.LocalPlayer\n\nlocal sprintSpeed = 24\nlocal normalSpeed = 16\n\nlocal function getHumanoid()\n	return (player.Character or player.CharacterAdded:Wait()):WaitForChild('Humanoid')\nend\n\nUIS.InputBegan:Connect(function(input, gpe)\n	if gpe then return end\n	if input.KeyCode == Enum.KeyCode.LeftShift then\n		getHumanoid().WalkSpeed = sprintSpeed\n	end\nend)\n\nUIS.InputEnded:Connect(function(input)\n	if input.KeyCode == Enum.KeyCode.LeftShift then\n		getHumanoid().WalkSpeed = normalSpeed\n	end\nend)"
-}

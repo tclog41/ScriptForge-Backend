@@ -1,8 +1,0 @@
-{
-	"id": "health_system",
-	"name": "Health System",
-	"category": "System",
-	"required": true,
-	"depends": [],
-	"source": "local Players = game:GetService('Players')\nPlayers.PlayerAdded:Connect(function(plr)\n	plr.CharacterAdded:Connect(function(char)\n		local hum = char:WaitForChild('Humanoid')\n		hum.HealthChanged:Connect(function()\n			print('Health:', hum.Health)\n		end)\n	end)\nend)"
-}
