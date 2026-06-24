@@ -1,17 +1,26 @@
-const { detectConflicts } = require("./conflicts");
+function score(prompt, keys) {
+    let s = 0;
+    for (const k of keys) {
+        if (prompt.includes(k)) s++;
+    }
+    return s;
+}
 
 function selectPacks(prompt) {
 
     prompt = (prompt || "").toLowerCase();
 
-    let packs = [];
+    const packs = [];
 
-    // MOVEMENT INTELLIGENCE
-    if (prompt.includes("sprint") || prompt.includes("movement") || prompt.includes("run")) {
+    const movement = score(prompt, ["sprint", "movement", "run", "speed"]);
+    const combat = score(prompt, ["combat", "fight", "damage"]);
+    const ui = score(prompt, ["ui", "hud", "menu"]);
+
+    if (movement > 0) {
         packs.push({
             id: "movement_pack",
             name: "Movement Pack",
-            priority: 3,
+            priority: movement,
             components: [
                 "movement_base",
                 "sprint_system",
@@ -20,12 +29,11 @@ function selectPacks(prompt) {
         });
     }
 
-    // COMBAT INTELLIGENCE
-    if (prompt.includes("combat") || prompt.includes("fight")) {
+    if (combat > 0) {
         packs.push({
             id: "combat_pack",
             name: "Combat Pack",
-            priority: 2,
+            priority: combat,
             components: [
                 "movement_base",
                 "combat_system"
@@ -33,15 +41,13 @@ function selectPacks(prompt) {
         });
     }
 
-    // UI INTELLIGENCE
-    if (prompt.includes("ui") || prompt.includes("hud")) {
+    if (ui > 0) {
         packs.push({
             id: "ui_pack",
             name: "UI Pack",
-            priority: 1,
+            priority: ui,
             components: [
-                "ui_base",
-                "damage_popup"
+                "ui_base"
             ]
         });
     }
@@ -55,7 +61,6 @@ function selectPacks(prompt) {
         });
     }
 
-    // SORT BY PRIORITY
     packs.sort((a, b) => b.priority - a.priority);
 
     return packs;
