@@ -1,20 +1,21 @@
 function selectPack(prompt) {
 
-    prompt = prompt.toLowerCase();
+    prompt = (prompt || "").toLowerCase();
 
-    if (prompt.includes("sprint") || prompt.includes("movement")) {
+    // MOVEMENT PACK
+    if (prompt.includes("sprint") || prompt.includes("movement") || prompt.includes("run")) {
         return {
             id: "movement_pack",
             name: "Movement Pack",
             components: [
                 "movement_base",
-                "sprint_system",
-                "crouch_system"
+                "sprint_system"
             ]
         };
     }
 
-    if (prompt.includes("combat")) {
+    // COMBAT PACK
+    if (prompt.includes("combat") || prompt.includes("fight")) {
         return {
             id: "combat_pack",
             name: "Combat Pack",
@@ -24,10 +25,13 @@ function selectPack(prompt) {
         };
     }
 
+    // DEFAULT PACK (NEVER FAILS)
     return {
         id: "basic_pack",
         name: "Basic Pack",
-        components: ["movement_base"]
+        components: [
+            "movement_base"
+        ]
     };
 }
 
