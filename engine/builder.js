@@ -30,7 +30,7 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
     let parsed;
     try {
         parsed = parse(prompt);
-    } catch (e) {
+    } catch {
         parsed = { tags: [prompt] };
     }
 
@@ -55,9 +55,7 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
         const template = templates[match.key];
         if (!template) continue;
 
-        const components = template.components || [];
-
-        for (const c of components) {
+        for (const c of (template.components || [])) {
 
             componentsOut.push({
                 template: match.key,
@@ -66,15 +64,15 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
                 required: !!c.required
             });
 
-            const userSelection = selectedComponents?.[match.key];
+            const user = selectedComponents?.[match.key];
 
             const enabled =
                 c.required === true ||
-                (userSelection && userSelection.includes(c.id));
+                (user && user.includes(c.id));
 
             if (!enabled) continue;
 
-            for (const file of c.files || []) {
+            for (const file of (c.files || [])) {
 
                 const key = `${file.parent}/${file.folder}`;
 
@@ -85,6 +83,7 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
         }
     }
 
+    // SAFE FALLBACK
     if (Object.keys(installMap).length === 0) {
         installMap["StarterPlayerScripts/System"] = [
             {
@@ -92,7 +91,7 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
                 type: "LocalScript",
                 parent: "StarterPlayerScripts",
                 folder: "System",
-                source: `print("ScriptForge fallback loaded")`
+                source: `print("ScriptForge fallback active")`
             }
         ];
     }
