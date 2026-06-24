@@ -7,6 +7,7 @@ app.use(express.json());
 
 app.post("/generate", (req, res) => {
     try {
+
         const { prompt, selectedComponents } = req.body;
 
         console.log("PROMPT:", prompt);
@@ -16,7 +17,7 @@ app.post("/generate", (req, res) => {
             selectedComponents || {}
         );
 
-        console.log("RESULT FILE COUNT:", result.files.length);
+        console.log("FILES:", result.files.length);
 
         return res.json({
             success: true,
