@@ -12,7 +12,7 @@ function selectPacks(prompt) {
 
     const packs = [];
 
-    const movement = score(prompt, ["sprint", "movement", "run", "speed"]);
+    const movement = score(prompt, ["sprint", "run", "movement", "speed"]);
     const combat = score(prompt, ["combat", "fight", "damage"]);
     const ui = score(prompt, ["ui", "hud", "menu"]);
 
