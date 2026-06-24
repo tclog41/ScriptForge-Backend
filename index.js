@@ -9,17 +9,14 @@ app.post("/generate", (req, res) => {
     try {
         const { prompt, selectedComponents } = req.body;
 
-        if (!prompt) {
-            return res.json({
-                success: false,
-                error: "No prompt provided"
-            });
-        }
+        console.log("PROMPT:", prompt);
 
         const result = buildFromPrompt(
             prompt.toLowerCase(),
             selectedComponents || {}
         );
+
+        console.log("RESULT FILE COUNT:", result.files.length);
 
         return res.json({
             success: true,
@@ -29,6 +26,7 @@ app.post("/generate", (req, res) => {
         });
 
     } catch (err) {
+        console.log("ERROR:", err);
         return res.json({
             success: false,
             error: err.message
@@ -37,5 +35,5 @@ app.post("/generate", (req, res) => {
 });
 
 app.listen(3000, () => {
-    console.log("🚀 ScriptForge running on port 3000");
+    console.log("ScriptForge running...");
 });
