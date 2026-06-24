@@ -1,5 +1,6 @@
 const { templates } = require("./templates");
 const { selectPacks } = require("./packSelector");
+const { detectConflicts } = require("./conflicts");
 
 function resolve(id, resolved, output) {
 
@@ -9,7 +10,6 @@ function resolve(id, resolved, output) {
     const comp = templates[id];
     if (!comp) return;
 
-    // dependencies first
     if (comp.dependencies) {
         for (const dep of comp.dependencies) {
             resolve(dep, resolved, output);
@@ -28,6 +28,22 @@ function buildFromPrompt(prompt) {
 
     const packs = selectPacks(prompt);
 
+    let selectedComponents = [];
+
+    for (const p of packs) {
+        selectedComponents.push(...p.components);
+    }
+
+    // STEP 1: detect conflicts
+    const conflicts = detectConflicts(selectedComponents);
+
+    // STEP 2: auto-fix conflicts (REMOVE weaker systems)
+    const blocked = new Set();
+
+    for (const c of conflicts) {
+        blocked.add(c.b); // remove conflicting one
+    }
+
     let resolved = new Set();
     let output = [];
 
@@ -42,12 +58,16 @@ function buildFromPrompt(prompt) {
         });
 
         for (const compId of pack.components) {
+
+            if (blocked.has(compId)) continue;
+
             resolve(compId, resolved, output);
         }
     }
 
     return {
         packs: usedPacks,
+        conflicts,
         files: output
     };
 }
