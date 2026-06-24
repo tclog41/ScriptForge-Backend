@@ -30,32 +30,36 @@ function buildFromPrompt(prompt) {
 
     let all = [];
 
-    for (const p of packs) {
-        all.push(...p.components);
+    for (const pack of packs) {
+        all.push(...pack.components);
     }
 
     const conflicts = detectConflicts(all);
 
     const blocked = new Set();
-    for (const c of conflicts) {
-        blocked.add(c.b);
+
+    for (const conflict of conflicts) {
+        blocked.add(conflict.b);
     }
 
-    let resolved = new Set();
-    let output = [];
+    const resolved = new Set();
+    const output = [];
 
     for (const pack of packs) {
         for (const id of pack.components) {
+
             if (blocked.has(id)) continue;
+
             resolve(id, resolved, output);
         }
     }
 
     return {
-        packs,
-        conflicts,
-        files: output
+        success: true,
+        components: output
     };
 }
 
-module.exports = { buildFromPrompt };
+module.exports = {
+    buildFromPrompt
+};
