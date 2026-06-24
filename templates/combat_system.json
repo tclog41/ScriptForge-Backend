@@ -1,0 +1,8 @@
+{
+	"id": "combat_basic",
+	"name": "Basic Combat",
+	"category": "Combat",
+	"required": false,
+	"depends": ["movement_base"],
+	"source": "local player = game.Players.LocalPlayer\nprint('Combat system loaded')"
+}
