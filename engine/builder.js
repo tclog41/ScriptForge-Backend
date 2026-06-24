@@ -1,6 +1,5 @@
 const { parse } = require("./parser");
 const { matchAll } = require("./matcher");
-
 const fs = require("fs");
 const path = require("path");
 
@@ -13,15 +12,12 @@ function loadTemplates() {
     for (const file of files) {
         if (!file.endsWith(".json")) continue;
 
-        const filePath = path.join(dir, file);
+        const data = JSON.parse(
+            fs.readFileSync(path.join(dir, file), "utf8")
+        );
 
-        try {
-            const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
-            const key = file.replace(".json", "");
-            templates[key] = data;
-        } catch (err) {
-            console.log("Template load error:", file, err.message);
-        }
+        const key = file.replace(".json", "");
+        templates[key] = data;
     }
 
     return templates;
@@ -31,7 +27,6 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
 
     const templates = loadTemplates();
 
-    // DEBUG SAFE PARSE (don’t rely on tags)
     let parsed;
     try {
         parsed = parse(prompt);
@@ -39,22 +34,10 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
         parsed = { tags: [prompt] };
     }
 
-    const tags = (parsed.tags && parsed.tags.length > 0)
-        ? parsed.tags
-        : [prompt];
+    const tags = parsed.tags?.length ? parsed.tags : [prompt];
 
-    console.log("DEBUG TAGS:", tags);
+    let matches = matchAll(templates, tags);
 
-    // FORCE match reliability
-    let matches = [];
-
-    try {
-        matches = matchAll(templates, tags);
-    } catch (e) {
-        console.log("MATCH ERROR:", e.message);
-    }
-
-    // fallback: if matcher fails, pick all templates
     if (!matches || matches.length === 0) {
         matches = Object.keys(templates).map(k => ({
             key: k,
@@ -65,73 +48,56 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
     const selected = matches.slice(0, 3);
 
     let installMap = {};
-    let usedTemplates = [];
     let componentsOut = [];
 
     for (const match of selected) {
 
-        const templateKey = match.key;
-        const template = templates[templateKey];
-
+        const template = templates[match.key];
         if (!template) continue;
-
-        usedTemplates.push({
-            key: templateKey,
-            score: match.score || 1
-        });
 
         const components = template.components || [];
 
-        for (const component of components) {
+        for (const c of components) {
 
             componentsOut.push({
-                template: templateKey,
-                id: component.id,
-                name: component.name,
-                required: component.required || false
+                template: match.key,
+                id: c.id,
+                name: c.name,
+                required: !!c.required
             });
 
-            const userSelected = selectedComponents[templateKey] || null;
+            const userSelection = selectedComponents?.[match.key];
 
-            // selection logic
-            if (userSelected) {
-                if (!userSelected.includes(component.id)) continue;
-            } else {
-                if (component.required === false) continue;
-            }
+            const enabled =
+                c.required === true ||
+                (userSelection && userSelection.includes(c.id));
 
-            for (const file of component.files || []) {
+            if (!enabled) continue;
 
-                const parent = file.parent || "StarterPlayerScripts";
-                const folder = file.folder || "System";
+            for (const file of c.files || []) {
 
-                const key = `${parent}/${folder}`;
+                const key = `${file.parent}/${file.folder}`;
 
-                if (!installMap[key]) {
-                    installMap[key] = [];
-                }
+                if (!installMap[key]) installMap[key] = [];
 
                 installMap[key].push(file);
             }
         }
     }
 
-    // HARD FALLBACK (NEVER EMPTY)
     if (Object.keys(installMap).length === 0) {
-        console.log("WARNING: installMap empty, forcing fallback");
-
         installMap["StarterPlayerScripts/System"] = [
             {
-                name: "FallbackScript",
+                name: "Fallback",
                 type: "LocalScript",
                 parent: "StarterPlayerScripts",
                 folder: "System",
-                source: `print("ScriptForge fallback working")`
+                source: `print("ScriptForge fallback loaded")`
             }
         ];
     }
 
-    let files = [];
+    const files = [];
 
     for (const key in installMap) {
         const [parent, folder] = key.split("/");
@@ -139,15 +105,13 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
         files.push({
             type: "folder",
             name: folder,
-            parent: parent,
+            parent,
             children: installMap[key]
         });
     }
 
-    console.log("FINAL FILES:", JSON.stringify(files, null, 2));
-
     return {
-        templates: usedTemplates,
+        templates: selected,
         files,
         components: componentsOut
     };
