@@ -1,5 +1,5 @@
 const { templates } = require("./templates");
-const { selectPack } = require("./packSelector");
+const { selectPacks } = require("./packSelector");
 
 function resolve(id, resolved, output) {
 
@@ -9,6 +9,7 @@ function resolve(id, resolved, output) {
     const comp = templates[id];
     if (!comp) return;
 
+    // dependencies first
     if (comp.dependencies) {
         for (const dep of comp.dependencies) {
             resolve(dep, resolved, output);
@@ -25,17 +26,28 @@ function resolve(id, resolved, output) {
 
 function buildFromPrompt(prompt) {
 
-    const pack = selectPack(prompt);
+    const packs = selectPacks(prompt);
 
     let resolved = new Set();
     let output = [];
 
-    for (const id of pack.components) {
-        resolve(id, resolved, output);
+    let usedPacks = [];
+
+    for (const pack of packs) {
+
+        usedPacks.push({
+            id: pack.id,
+            name: pack.name,
+            priority: pack.priority
+        });
+
+        for (const compId of pack.components) {
+            resolve(compId, resolved, output);
+        }
     }
 
     return {
-        pack,
+        packs: usedPacks,
         files: output
     };
 }
