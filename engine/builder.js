@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 /**
- * Load all JSON templates
+ * Load all templates from JSON files
  */
 function loadTemplates() {
     const templates = {};
@@ -21,8 +21,10 @@ function loadTemplates() {
 
         try {
             const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
+
             const key = file.replace(".json", "");
             templates[key] = data;
+
         } catch (err) {
             console.log("Template load error:", file, err.message);
         }
@@ -34,7 +36,7 @@ function loadTemplates() {
 /**
  * MAIN BUILDER
  */
-function buildFromPrompt(prompt) {
+function buildFromPrompt(prompt, selectedComponents = {}) {
 
     const templates = loadTemplates();
 
@@ -45,17 +47,17 @@ function buildFromPrompt(prompt) {
     const selected = matches.slice(0, 3);
 
     let usedTemplates = [];
-
-    // installer structure
-    const installMap = {};
+    let installMap = {};
 
     for (const match of selected) {
 
-        const template = templates[match.key];
+        const templateKey = match.key;
+        const template = templates[templateKey];
+
         if (!template) continue;
 
         usedTemplates.push({
-            key: match.key,
+            key: templateKey,
             score: match.score
         });
 
@@ -63,8 +65,18 @@ function buildFromPrompt(prompt) {
 
         for (const component of components) {
 
-            // TEMP RULE: required only (Step 5 safe mode)
-            if (component.required === false) continue;
+            const userSelected = selectedComponents[templateKey] || null;
+
+            // RULE:
+            // if plugin sends selected components → use them
+            if (userSelected) {
+                if (!userSelected.includes(component.id)) {
+                    continue;
+                }
+            } else {
+                // fallback mode (Step 5 behaviour)
+                if (component.required === false) continue;
+            }
 
             for (const file of component.files || []) {
 
@@ -100,18 +112,18 @@ function buildFromPrompt(prompt) {
         });
     }
 
-    // convert map → structured output
+    // convert install map → structured output
     let files = [];
 
-    for (const installKey in installMap) {
+    for (const key in installMap) {
 
-        const [parent, folder] = installKey.split("/");
+        const [parent, folder] = key.split("/");
 
         files.push({
             type: "folder",
             name: folder,
             parent: parent,
-            children: installMap[installKey]
+            children: installMap[key]
         });
     }
 
