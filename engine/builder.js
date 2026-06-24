@@ -4,14 +4,10 @@ const { matchAll } = require("./matcher");
 const fs = require("fs");
 const path = require("path");
 
-/**
- * Load all templates from JSON files
- */
 function loadTemplates() {
     const templates = {};
 
     const dir = path.join(__dirname, "../templates");
-
     const files = fs.readdirSync(dir);
 
     for (const file of files) {
@@ -21,10 +17,8 @@ function loadTemplates() {
 
         try {
             const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
-
             const key = file.replace(".json", "");
             templates[key] = data;
-
         } catch (err) {
             console.log("Template load error:", file, err.message);
         }
@@ -33,9 +27,6 @@ function loadTemplates() {
     return templates;
 }
 
-/**
- * MAIN BUILDER
- */
 function buildFromPrompt(prompt, selectedComponents = {}) {
 
     const templates = loadTemplates();
@@ -48,6 +39,7 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
 
     let usedTemplates = [];
     let installMap = {};
+    let componentsOut = [];
 
     for (const match of selected) {
 
@@ -65,16 +57,19 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
 
         for (const component of components) {
 
+            componentsOut.push({
+                template: templateKey,
+                id: component.id,
+                name: component.name,
+                required: component.required || false
+            });
+
             const userSelected = selectedComponents[templateKey] || null;
 
-            // RULE:
-            // if plugin sends selected components → use them
+            // selection logic
             if (userSelected) {
-                if (!userSelected.includes(component.id)) {
-                    continue;
-                }
+                if (!userSelected.includes(component.id)) continue;
             } else {
-                // fallback mode (Step 5 behaviour)
                 if (component.required === false) continue;
             }
 
@@ -83,18 +78,17 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
                 const parent = file.parent || "StarterPlayerScripts";
                 const folder = file.folder || "System";
 
-                const installKey = `${parent}/${folder}`;
+                const key = `${parent}/${folder}`;
 
-                if (!installMap[installKey]) {
-                    installMap[installKey] = [];
+                if (!installMap[key]) {
+                    installMap[key] = [];
                 }
 
-                installMap[installKey].push(file);
+                installMap[key].push(file);
             }
         }
     }
 
-    // fallback safety
     if (Object.keys(installMap).length === 0) {
         installMap["StarterPlayerScripts/System"] = [
             {
@@ -105,18 +99,11 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
                 source: `print("No template matched")`
             }
         ];
-
-        usedTemplates.push({
-            key: "fallback",
-            score: 0
-        });
     }
 
-    // convert install map → structured output
     let files = [];
 
     for (const key in installMap) {
-
         const [parent, folder] = key.split("/");
 
         files.push({
@@ -129,7 +116,8 @@ function buildFromPrompt(prompt, selectedComponents = {}) {
 
     return {
         templates: usedTemplates,
-        files
+        files,
+        components: componentsOut
     };
 }
 
