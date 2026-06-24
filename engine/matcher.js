@@ -1,30 +1,54 @@
-function score(templateTags, userTags) {
-    let s = 0;
-
-    for (const t of userTags) {
-        if (templateTags.includes(t)) {
-            s += 10;
-        }
-    }
-
-    return s;
-}
-
-function findBestTemplate(tags, templates) {
-    let bestKey = null;
-    let bestScore = 0;
+function matchAll(templates, inputTags) {
+    const results = [];
 
     for (const key in templates) {
-        const t = templates[key];
-        const s = score(t.tags, tags);
+        const template = templates[key];
 
-        if (s > bestScore) {
-            bestScore = s;
-            bestKey = key;
+        let score = 0;
+
+        // 1. TAG MATCHING (base system)
+        if (template.tags) {
+            for (const tag of template.tags) {
+                if (inputTags.includes(tag)) {
+                    score += 10; // strong match
+                }
+            }
+        }
+
+        // 2. KEYWORD MATCHING (IMPORTANT UPGRADE)
+        if (template.keywords) {
+            for (const keyword of template.keywords) {
+                if (inputTags.includes(keyword)) {
+                    score += 5;
+                }
+            }
+        }
+
+        // 3. EXACT NAME BONUS (rare but powerful)
+        if (inputTags.includes(key)) {
+            score += 20;
+        }
+
+        // 4. CATEGORY BOOST (future-proofing)
+        if (template.category) {
+            if (inputTags.includes(template.category.toLowerCase())) {
+                score += 3;
+            }
+        }
+
+        // only keep if it has some relevance
+        if (score > 0) {
+            results.push({
+                key,
+                score
+            });
         }
     }
 
-    return bestKey;
+    // sort best first
+    results.sort((a, b) => b.score - a.score);
+
+    return results;
 }
 
-module.exports = { findBestTemplate };
+module.exports = { matchAll };
