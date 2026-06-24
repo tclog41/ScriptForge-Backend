@@ -5,7 +5,7 @@ const fs = require("fs");
 const path = require("path");
 
 /**
- * Load all templates from /templates
+ * Load all JSON templates
  */
 function loadTemplates() {
     const templates = {};
@@ -21,10 +21,8 @@ function loadTemplates() {
 
         try {
             const data = JSON.parse(fs.readFileSync(filePath, "utf8"));
-
             const key = file.replace(".json", "");
             templates[key] = data;
-
         } catch (err) {
             console.log("Template load error:", file, err.message);
         }
@@ -48,35 +46,43 @@ function buildFromPrompt(prompt) {
 
     let usedTemplates = [];
 
-    // STEP 4: Smart Installer Map
+    // installer structure
     const installMap = {};
 
     for (const match of selected) {
 
         const template = templates[match.key];
-        if (!template || !template.files) continue;
+        if (!template) continue;
 
         usedTemplates.push({
             key: match.key,
             score: match.score
         });
 
-        for (const file of template.files) {
+        const components = template.components || [];
 
-            const parent = file.parent || "StarterPlayerScripts";
-            const folder = file.folder || "System";
+        for (const component of components) {
 
-            const installKey = `${parent}/${folder}`;
+            // TEMP RULE: required only (Step 5 safe mode)
+            if (component.required === false) continue;
 
-            if (!installMap[installKey]) {
-                installMap[installKey] = [];
+            for (const file of component.files || []) {
+
+                const parent = file.parent || "StarterPlayerScripts";
+                const folder = file.folder || "System";
+
+                const installKey = `${parent}/${folder}`;
+
+                if (!installMap[installKey]) {
+                    installMap[installKey] = [];
+                }
+
+                installMap[installKey].push(file);
             }
-
-            installMap[installKey].push(file);
         }
     }
 
-    // Fallback (never empty)
+    // fallback safety
     if (Object.keys(installMap).length === 0) {
         installMap["StarterPlayerScripts/System"] = [
             {
@@ -94,7 +100,7 @@ function buildFromPrompt(prompt) {
         });
     }
 
-    // Convert map → structured output
+    // convert map → structured output
     let files = [];
 
     for (const installKey in installMap) {
