@@ -1,8 +1,0 @@
-{
-	"name": "pickup",
-	"type": "interaction",
-	"variables": {
-		"range": 10
-	},
-	"code": "-- Pickup System\nlocal range = {{range}}\n\nprint('Pickup system loaded')"
-}
