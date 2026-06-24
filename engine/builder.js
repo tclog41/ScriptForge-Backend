@@ -28,13 +28,13 @@ function buildFromPrompt(prompt) {
 
     const packs = selectPacks(prompt);
 
-    let allComponents = [];
+    let all = [];
 
     for (const p of packs) {
-        allComponents.push(...p.components);
+        all.push(...p.components);
     }
 
-    const conflicts = detectConflicts(allComponents);
+    const conflicts = detectConflicts(all);
 
     const blocked = new Set();
     for (const c of conflicts) {
@@ -45,7 +45,6 @@ function buildFromPrompt(prompt) {
     let output = [];
 
     for (const pack of packs) {
-
         for (const id of pack.components) {
             if (blocked.has(id)) continue;
             resolve(id, resolved, output);
