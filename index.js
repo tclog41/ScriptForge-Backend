@@ -7,17 +7,23 @@ app.use(express.json());
 
 app.post("/generate", (req, res) => {
     try {
-        const { prompt } = req.body;
+        const { prompt, selectedComponents } = req.body;
 
         if (!prompt) {
-            return res.json({ success: false, error: "No prompt provided" });
+            return res.json({
+                success: false,
+                error: "No prompt provided"
+            });
         }
 
-        const result = buildFromPrompt(prompt.toLowerCase());
+        const result = buildFromPrompt(
+            prompt.toLowerCase(),
+            selectedComponents || {}
+        );
 
         return res.json({
             success: true,
-            template: result.template,
+            templates: result.templates,
             files: result.files
         });
 
@@ -30,5 +36,5 @@ app.post("/generate", (req, res) => {
 });
 
 app.listen(3000, () => {
-    console.log("🚀 ScriptForge Template Engine running on port 3000");
+    console.log("🚀 ScriptForge running on port 3000");
 });
