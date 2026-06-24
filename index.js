@@ -8,27 +8,27 @@ app.use(express.json());
 app.post("/generate", (req, res) => {
     try {
 
-        const { prompt, selectedComponents } = req.body;
+        const { prompt } = req.body;
 
-        console.log("PROMPT:", prompt);
+        if (!prompt) {
+            return res.json({
+                success: false,
+                error: "No prompt provided"
+            });
+        }
 
-        const result = buildFromPrompt(
-            prompt.toLowerCase(),
-            selectedComponents || {}
-        );
+        const result = buildFromPrompt(prompt);
 
-        console.log("FILES:", result.files.length);
-
-        res.json({
+        return res.json({
             success: true,
-            templates: result.templates,
-            files: result.files,
-            components: result.components
+            pack: result.pack,
+            components: result.files
         });
 
     } catch (err) {
-        console.log("ERROR:", err);
-        res.json({
+        console.error(err);
+
+        return res.json({
             success: false,
             error: err.message
         });
@@ -36,5 +36,5 @@ app.post("/generate", (req, res) => {
 });
 
 app.listen(3000, () => {
-    console.log("ScriptForge running...");
+    console.log("🚀 ScriptForge ENGINE v2 running on port 3000");
 });
