@@ -1,0 +1,48 @@
+{
+  "name": "Health System",
+  "keywords": ["health", "damage", "ui", "hp", "regen"],
+  "components": [
+    {
+      "id": "core",
+      "name": "Health Core",
+      "required": true,
+      "files": [
+        {
+          "name": "HealthController",
+          "type": "Script",
+          "parent": "StarterPlayer",
+          "folder": "StarterCharacterScripts",
+          "source": "game.Players.PlayerAdded:Connect(function(p)\n p.CharacterAdded:Connect(function(c)\n  local h = c:WaitForChild('Humanoid')\n  h.HealthChanged:Connect(function()\n   print('Health changed')\n  end)\n end)\nend)"
+        }
+      ]
+    },
+    {
+      "id": "ui",
+      "name": "Health UI",
+      "required": false,
+      "files": [
+        {
+          "name": "HealthUI",
+          "type": "LocalScript",
+          "parent": "StarterGui",
+          "folder": "UI",
+          "source": "print('Health UI loaded')"
+        }
+      ]
+    },
+    {
+      "id": "regen",
+      "name": "Regeneration",
+      "required": false,
+      "files": [
+        {
+          "name": "Regen",
+          "type": "Script",
+          "parent": "StarterPlayer",
+          "folder": "StarterCharacterScripts",
+          "source": "print('Regen system active')"
+        }
+      ]
+    }
+  ]
+}
