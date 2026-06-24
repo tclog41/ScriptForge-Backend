@@ -1,134 +1,104 @@
 require("dotenv").config();
 
 const express = require("express");
-const sqlite3 = require("sqlite3").verbose();
 const fs = require("fs");
 const path = require("path");
 
 const app = express();
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
 const TEMPLATE_FOLDER = path.join(__dirname, "templates");
 
-// =============================
-// DATABASE SETUP
-// =============================
+// =========================
+// ⚙️ CONFIG
+// =========================
 
-const db = new sqlite3.Database("./scriptforge.db");
+const PUBLIC_AUTH = "scriptforge_public_v1";
 
-db.serialize(() => {
-    db.run(`
-        CREATE TABLE IF NOT EXISTS cache (
-            prompt TEXT PRIMARY KEY,
-            response TEXT,
-            createdAt INTEGER
-        )
-    `);
+// in-memory cache (no database)
+const cache = new Map();
+const rateLimit = new Map();
 
-    console.log("✅ Database ready");
-});
+// =========================
+// 🧠 RATE LIMIT
+// =========================
 
-// =============================
-// AUTH
-// =============================
+function isRateLimited(userId) {
+    const now = Date.now();
+    const data = rateLimit.get(userId);
 
-function verifyKey(req, res, next) {
-    const key = req.headers["x-api-key"];
-
-    if (!key || key !== process.env.API_KEY) {
-        return res.status(401).json({
-            success: false,
-            error: "unauthorized"
-        });
+    if (!data) {
+        rateLimit.set(userId, { count: 1, time: now });
+        return false;
     }
 
-    next();
+    if (now - data.time > 60000) {
+        rateLimit.set(userId, { count: 1, time: now });
+        return false;
+    }
+
+    data.count++;
+
+    if (data.count > 10) return true;
+
+    rateLimit.set(userId, data);
+    return false;
 }
 
-// =============================
-// CACHE
-// =============================
+// =========================
+// 📦 LOAD TEMPLATE
+// =========================
 
-function getCache(prompt) {
-    return new Promise((resolve) => {
-        db.get(
-            "SELECT response FROM cache WHERE prompt = ?",
-            [prompt],
-            (err, row) => {
-                if (err || !row) return resolve(null);
-                resolve(JSON.parse(row.response));
-            }
-        );
-    });
+function loadTemplateFiles() {
+    const files = fs.readdirSync(TEMPLATE_FOLDER);
+
+    const templates = files
+        .filter(f => f.endsWith(".json"))
+        .map(f => {
+            const raw = fs.readFileSync(path.join(TEMPLATE_FOLDER, f), "utf8");
+            return JSON.parse(raw);
+        });
+
+    return templates;
 }
 
-function saveCache(prompt, response) {
-    db.run(
-        `
-        INSERT OR REPLACE INTO cache
-        (prompt, response, createdAt)
-        VALUES (?, ?, ?)
-        `,
-        [
-            prompt,
-            JSON.stringify(response),
-            Date.now()
-        ]
-    );
-}
-
-// =============================
-// TEMPLATE MATCHING
-// =============================
+// =========================
+// 🔎 TEMPLATE MATCH
+// =========================
 
 function findTemplate(prompt) {
-    try {
-        const files = fs.readdirSync(TEMPLATE_FOLDER);
+    const templates = loadTemplateFiles();
 
-        let best = null;
-        let bestScore = 0;
+    for (const t of templates) {
+        if (!t.keywords) continue;
 
-        for (const file of files) {
-            if (!file.endsWith(".json")) continue;
-
-            const data = JSON.parse(
-                fs.readFileSync(
-                    path.join(TEMPLATE_FOLDER, file),
-                    "utf8"
-                )
-            );
-
-            let score = 0;
-
-            for (const key of (data.keywords || [])) {
-                if (prompt.includes(key.toLowerCase())) {
-                    score++;
-                }
-            }
-
-            if (score > bestScore) {
-                bestScore = score;
-                best = data;
+        for (const k of t.keywords) {
+            if (prompt.includes(k)) {
+                return t;
             }
         }
-
-        if (best && bestScore > 0) {
-            return best;
-        }
-
-        return null;
-
-    } catch (err) {
-        console.error("Template error:", err);
-        return null;
     }
+
+    return null;
 }
 
-// =============================
-// AI (DeepSeek)
-// =============================
+// =========================
+// 💾 CACHE
+// =========================
+
+function getCache(prompt) {
+    return cache.get(prompt);
+}
+
+function saveCache(prompt, data) {
+    cache.set(prompt, data);
+}
+
+// =========================
+// 🤖 AI (DeepSeek)
+// =========================
 
 async function callAI(prompt) {
     try {
@@ -143,17 +113,7 @@ async function callAI(prompt) {
                 messages: [
                     {
                         role: "system",
-                        content: `
-You are an expert Roblox Lua developer.
-
-RULES:
-- Output ONLY valid Roblox Lua code
-- No markdown
-- No explanations
-- No comments
-- Must be production-ready
-- Must work in Roblox Studio
-                        `
+                        content: "You are a Roblox Lua expert. Return ONLY clean Lua code."
                     },
                     {
                         role: "user",
@@ -164,67 +124,77 @@ RULES:
         });
 
         const data = await res.json();
-
-        return data?.choices?.[0]?.message?.content || "-- AI FAILED";
+        return data?.choices?.[0]?.message?.content || "-- AI ERROR";
 
     } catch (err) {
-        console.error(err);
-        return "-- AI ERROR";
+        return "-- SERVER ERROR";
     }
 }
 
-// =============================
-// NORMALISE TEMPLATE → FILES
-// =============================
+// =========================
+// 🚀 MAIN GENERATE ROUTE
+// =========================
 
-function formatTemplate(template) {
-    return {
-        success: true,
-        source: "template",
-        name: template.name,
-        files: template.files || []
-    };
-}
-
-// =============================
-// MAIN GENERATE ROUTE
-// =============================
-
-app.post("/generate", verifyKey, async (req, res) => {
+app.post("/generate", async (req, res) => {
     try {
-        const promptRaw = req.body.prompt || "";
-        const prompt = promptRaw.toLowerCase().trim();
+        const { prompt, userId, auth } = req.body;
 
-        if (!prompt) {
+        // =========================
+        // 1. AUTH CHECK
+        // =========================
+
+        if (auth !== PUBLIC_AUTH) {
             return res.json({
                 success: false,
-                error: "missing_prompt"
+                error: "invalid_auth"
             });
         }
 
-        console.log("🔍 Prompt:", prompt);
-
         // =========================
-        // 1. TEMPLATE MATCH
+        // 2. RATE LIMIT
         // =========================
 
-        const template = findTemplate(prompt);
-
-        if (template) {
-            console.log("📦 Template hit:", template.name);
-
-            return res.json(formatTemplate(template));
+        if (isRateLimited(userId)) {
+            return res.json({
+                success: false,
+                error: "rate_limited"
+            });
         }
 
         // =========================
-        // 2. CACHE CHECK
+        // 3. VALIDATION
         // =========================
 
-        const cached = await getCache(prompt);
+        if (!prompt || prompt.length < 3) {
+            return res.json({
+                success: false,
+                error: "invalid_prompt"
+            });
+        }
+
+        const cleanPrompt = prompt.toLowerCase();
+
+        // =========================
+        // 4. TEMPLATE MATCH (FAST PATH)
+        // =========================
+
+        const template = findTemplate(cleanPrompt);
+
+        if (template) {
+            return res.json({
+                success: true,
+                source: "template",
+                files: template.files
+            });
+        }
+
+        // =========================
+        // 5. CACHE
+        // =========================
+
+        const cached = getCache(cleanPrompt);
 
         if (cached) {
-            console.log("⚡ Cache hit");
-
             return res.json({
                 success: true,
                 source: "cache",
@@ -233,29 +203,27 @@ app.post("/generate", verifyKey, async (req, res) => {
         }
 
         // =========================
-        // 3. AI FALLBACK
+        // 6. AI FALLBACK
         // =========================
 
-        console.log("🤖 AI generating...");
+        const ai = await callAI(prompt);
 
-        const aiScript = await callAI(prompt);
-
-        const aiResponse = {
+        const response = {
             success: true,
             source: "ai",
             files: [
                 {
-                    name: "ScriptForgeAI",
-                    type: "Script",
-                    parent: "ServerScriptService",
-                    source: aiScript
+                    name: "AI_Script",
+                    type: "LocalScript",
+                    parent: "StarterPlayerScripts",
+                    source: ai
                 }
             ]
         };
 
-        saveCache(prompt, aiResponse);
+        saveCache(cleanPrompt, response);
 
-        return res.json(aiResponse);
+        return res.json(response);
 
     } catch (err) {
         console.error(err);
@@ -267,55 +235,28 @@ app.post("/generate", verifyKey, async (req, res) => {
     }
 });
 
-// =============================
-// TEMPLATE LIST
-// =============================
+// =========================
+// 📋 TEMPLATE LIST
+// =========================
 
-app.get("/templates", verifyKey, (req, res) => {
+app.get("/templates", (req, res) => {
     try {
-        const files = fs.readdirSync(TEMPLATE_FOLDER);
+        const templates = loadTemplateFiles().map(t => ({
+            name: t.name,
+            keywords: t.keywords
+        }));
 
-        const templates = files
-            .filter(f => f.endsWith(".json"))
-            .map(f => {
-                const data = JSON.parse(
-                    fs.readFileSync(
-                        path.join(TEMPLATE_FOLDER, f),
-                        "utf8"
-                    )
-                );
-
-                return {
-                    id: f.replace(".json", ""),
-                    name: data.name
-                };
-            });
-
-        res.json({
-            success: true,
-            templates
-        });
+        res.json({ success: true, templates });
 
     } catch (err) {
-        res.status(500).json({
-            success: false,
-            error: "template_load_failed"
-        });
+        res.json({ success: false, error: "failed" });
     }
 });
 
-// =============================
-// HEALTH CHECK
-// =============================
-
-app.get("/", (req, res) => {
-    res.send("🚀 ScriptForge v2 Backend Running");
-});
-
-// =============================
-// START SERVER
-// =============================
+// =========================
+// 🚀 START
+// =========================
 
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
+    console.log("🚀 ScriptForge Secure Backend running on port", PORT);
 });
