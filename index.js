@@ -1,10 +1,3 @@
-require("dotenv").config();
-const express = require("express");
-const { buildFromPrompt } = require("./engine/builder");
-
-const app = express();
-app.use(express.json());
-
 app.post("/generate", (req, res) => {
     try {
 
@@ -21,7 +14,7 @@ app.post("/generate", (req, res) => {
 
         return res.json({
             success: true,
-            pack: result.pack,
+            packs: result.packs,
             components: result.files
         });
 
@@ -33,8 +26,4 @@ app.post("/generate", (req, res) => {
             error: err.message
         });
     }
-});
-
-app.listen(3000, () => {
-    console.log("🚀 ScriptForge ENGINE v2 running on port 3000");
 });
