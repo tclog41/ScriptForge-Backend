@@ -1,0 +1,12 @@
+{
+  "name": "Inventory",
+  "keywords": ["inventory","items"],
+  "files": [
+    {
+      "name": "Inventory",
+      "type": "LocalScript",
+      "parent": "StarterPlayerScripts",
+      "source": "local inv = {}\ntable.insert(inv,'Sword')\nprint(inv[1])"
+    }
+  ]
+}
