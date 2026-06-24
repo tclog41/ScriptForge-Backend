@@ -1,48 +1,8 @@
 {
-  "name": "Sprint System",
-  "keywords": ["sprint", "run", "shift", "speed", "movement"],
-  "components": [
-    {
-      "id": "core",
-      "name": "Sprint Core",
-      "required": true,
-      "files": [
-        {
-          "name": "SprintController",
-          "type": "LocalScript",
-          "parent": "StarterPlayer",
-          "folder": "StarterPlayerScripts",
-          "source": "local UIS = game:GetService('UserInputService')\nlocal player = game.Players.LocalPlayer\n\nlocal function hum()\n return (player.Character or player.CharacterAdded:Wait()):WaitForChild('Humanoid')\nend\n\nlocal normal = 16\nlocal sprint = 24\n\nUIS.InputBegan:Connect(function(i,g)\n if g then return end\n if i.KeyCode == Enum.KeyCode.LeftShift then\n  hum().WalkSpeed = sprint\n end\nend)\n\nUIS.InputEnded:Connect(function(i)\n if i.KeyCode == Enum.KeyCode.LeftShift then\n  hum().WalkSpeed = normal\n end\nend)"
-        }
-      ]
-    },
-    {
-      "id": "stamina",
-      "name": "Stamina System",
-      "required": false,
-      "files": [
-        {
-          "name": "Stamina",
-          "type": "LocalScript",
-          "parent": "StarterPlayer",
-          "folder": "StarterPlayerScripts",
-          "source": "print('Stamina system placeholder')"
-        }
-      ]
-    },
-    {
-      "id": "ui",
-      "name": "Sprint UI",
-      "required": false,
-      "files": [
-        {
-          "name": "SprintUI",
-          "type": "LocalScript",
-          "parent": "StarterGui",
-          "folder": "UI",
-          "source": "print('Sprint UI loaded')"
-        }
-      ]
-    }
-  ]
+	"id": "sprint_system",
+	"name": "Sprint System",
+	"category": "Movement",
+	"required": false,
+	"depends": ["movement_base"],
+	"source": "local UIS = game:GetService('UserInputService')\nlocal player = game.Players.LocalPlayer\n\nlocal sprintSpeed = 24\nlocal normalSpeed = 16\n\nlocal function getHumanoid()\n	return (player.Character or player.CharacterAdded:Wait()):WaitForChild('Humanoid')\nend\n\nUIS.InputBegan:Connect(function(input, gpe)\n	if gpe then return end\n	if input.KeyCode == Enum.KeyCode.LeftShift then\n		getHumanoid().WalkSpeed = sprintSpeed\n	end\nend)\n\nUIS.InputEnded:Connect(function(input)\n	if input.KeyCode == Enum.KeyCode.LeftShift then\n		getHumanoid().WalkSpeed = normalSpeed\n	end\nend)"
 }
