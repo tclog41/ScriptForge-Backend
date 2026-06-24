@@ -1,56 +1,51 @@
-function score(prompt, keywords) {
-    let s = 0;
-    for (const k of keywords) {
-        if (prompt.includes(k)) s++;
-    }
-    return s;
-}
+const { detectConflicts } = require("./conflicts");
 
 function selectPacks(prompt) {
 
     prompt = (prompt || "").toLowerCase();
 
-    const packs = [];
+    let packs = [];
 
-    // MOVEMENT PACK
-    const movementScore = score(prompt, ["sprint", "movement", "run", "walk", "speed"]);
-    if (movementScore > 0) {
+    // MOVEMENT INTELLIGENCE
+    if (prompt.includes("sprint") || prompt.includes("movement") || prompt.includes("run")) {
         packs.push({
             id: "movement_pack",
             name: "Movement Pack",
-            priority: movementScore,
+            priority: 3,
             components: [
                 "movement_base",
-                "sprint_system"
+                "sprint_system",
+                "stamina_system"
             ]
         });
     }
 
-    // COMBAT PACK
-    const combatScore = score(prompt, ["combat", "fight", "weapon", "damage"]);
-    if (combatScore > 0) {
+    // COMBAT INTELLIGENCE
+    if (prompt.includes("combat") || prompt.includes("fight")) {
         packs.push({
             id: "combat_pack",
             name: "Combat Pack",
-            priority: combatScore,
+            priority: 2,
             components: [
-                "movement_base"
+                "movement_base",
+                "combat_system"
             ]
         });
     }
 
-    // UI PACK
-    const uiScore = score(prompt, ["ui", "hud", "menu", "interface"]);
-    if (uiScore > 0) {
+    // UI INTELLIGENCE
+    if (prompt.includes("ui") || prompt.includes("hud")) {
         packs.push({
             id: "ui_pack",
             name: "UI Pack",
-            priority: uiScore,
-            components: []
+            priority: 1,
+            components: [
+                "ui_base",
+                "damage_popup"
+            ]
         });
     }
 
-    // DEFAULT SAFETY PACK
     if (packs.length === 0) {
         packs.push({
             id: "base_pack",
@@ -60,7 +55,7 @@ function selectPacks(prompt) {
         });
     }
 
-    // SORT BY PRIORITY (MOST IMPORTANT CHANGE)
+    // SORT BY PRIORITY
     packs.sort((a, b) => b.priority - a.priority);
 
     return packs;
