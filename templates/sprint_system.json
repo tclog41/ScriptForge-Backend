@@ -1,12 +1,29 @@
 {
-	"name": "Sprint System",
-	"keywords": [ "sprint", "run", "shift", "speed" ],
-	"files": [
-		{
-			"name": "SprintController",
-			"type": "LocalScript",
-			"parent": "StarterPlayerScripts",
-			"source": "local UIS = game:GetService('UserInputService')\nlocal player = game.Players.LocalPlayer\n\nlocal function hum()\n return (player.Character or player.CharacterAdded:Wait()):WaitForChild('Humanoid')\nend\n\nlocal normal = 16\nlocal sprint = 24\n\nUIS.InputBegan:Connect(function(i,g)\n if g then return end\n if i.KeyCode == Enum.KeyCode.LeftShift then\n  hum().WalkSpeed = sprint\n end\nend)\n\nUIS.InputEnded:Connect(function(i)\n if i.KeyCode == Enum.KeyCode.LeftShift then\n  hum().WalkSpeed = normal\n end\nend)"
-		}
-	]
+  "name": "Sprint System",
+
+  "category": "movement",
+
+  "description": "Adds sprinting with Shift key and adjustable speed.",
+
+  "keywords": [
+    "sprint",
+    "run",
+    "speed",
+    "shift",
+    "movement"
+  ],
+
+  "tags": [
+    "movement"
+  ],
+
+  "files": [
+    {
+      "name": "SprintController",
+      "type": "LocalScript",
+      "parent": "StarterPlayerScripts",
+      "folder": "Movement",
+      "source": "local UIS = game:GetService('UserInputService')\nlocal Players = game:GetService('Players')\n\nlocal player = Players.LocalPlayer\n\nlocal function getHumanoid()\n\tlocal char = player.Character or player.CharacterAdded:Wait()\n\treturn char:WaitForChild('Humanoid')\nend\n\nlocal normalSpeed = 16\nlocal sprintSpeed = 24\n\nlocal isSprinting = false\n\nUIS.InputBegan:Connect(function(input, gameProcessed)\n\tif gameProcessed then return end\n\tif input.KeyCode == Enum.KeyCode.LeftShift then\n\t\tisSprinting = true\n\t\tgetHumanoid().WalkSpeed = sprintSpeed\n\tend\nend)\n\nUIS.InputEnded:Connect(function(input)\n\tif input.KeyCode == Enum.KeyCode.LeftShift then\n\t\tisSprinting = false\n\t\tgetHumanoid().WalkSpeed = normalSpeed\n\tend\nend)\n"
+    }
+  ]
 }
