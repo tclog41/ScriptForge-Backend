@@ -1,0 +1,12 @@
+{
+  "name": "Leaderstats",
+  "keywords": ["leaderstats","coins","money"],
+  "files": [
+    {
+      "name": "Leaderstats",
+      "type": "Script",
+      "parent": "ServerScriptService",
+      "source": "game.Players.PlayerAdded:Connect(function(p)\n local f = Instance.new('Folder')\n f.Name = 'leaderstats'\n f.Parent = p\n local c = Instance.new('IntValue')\n c.Name = 'Coins'\n c.Parent = f\nend)"
+    }
+  ]
+}
