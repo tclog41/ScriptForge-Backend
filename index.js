@@ -39,5 +39,5 @@ app.post("/generate", (req, res) => {
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("🚀 ScriptForge ENGINE v3 running on port", PORT);
+    console.log("🚀 ScriptForge running on port", PORT);
 });
