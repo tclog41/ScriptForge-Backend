@@ -1,0 +1,12 @@
+{
+  "name": "Checkpoint",
+  "keywords": ["checkpoint","respawn","save"],
+  "files": [
+    {
+      "name": "Checkpoint",
+      "type": "Script",
+      "parent": "Workspace",
+      "source": "script.Parent.Touched:Connect(function(h)\n local p = game.Players:GetPlayerFromCharacter(h.Parent)\n if p then p.RespawnLocation = script.Parent end\nend)"
+    }
+  ]
+}
