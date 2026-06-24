@@ -1,23 +1,38 @@
-const { parseKeywords } = require("./parser");
+const { parse } = require("./parser");
 const { templates } = require("./templates");
-const { findBestTemplate } = require("./matcher");
+const { matchAll } = require("./matcher");
 
 function buildFromPrompt(prompt) {
 
-    const parsed = parseKeywords(prompt);
+    const parsed = parse(prompt);
 
-    const best = findBestTemplate(parsed.tags, templates);
+    const matches = matchAll(templates, parsed.tags);
 
-    if (!best) {
-        return {
-            template: null,
-            files: []
-        };
+    // take top 3 systems max (prevents spam)
+    const selected = matches.slice(0, 3);
+
+    let files = [];
+    let usedTemplates = [];
+
+    for (const m of selected) {
+        usedTemplates.push(m.key);
+        files.push(...templates[m.key].files);
+    }
+
+    // fallback (never empty)
+    if (files.length === 0) {
+        files.push({
+            name: "Fallback",
+            type: "LocalScript",
+            parent: "StarterPlayerScripts",
+            folder: "System",
+            source: `print("No template matched")`
+        });
     }
 
     return {
-        template: best,
-        files: templates[best].files
+        templates: usedTemplates,
+        files
     };
 }
 
