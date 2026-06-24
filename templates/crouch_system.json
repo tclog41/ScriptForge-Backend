@@ -1,0 +1,12 @@
+{
+  "name": "Crouch System",
+  "keywords": ["crouch","duck","stealth"],
+  "files": [
+    {
+      "name": "Crouch",
+      "type": "LocalScript",
+      "parent": "StarterPlayerScripts",
+      "source": "local UIS = game:GetService('UserInputService')\nlocal p = game.Players.LocalPlayer\nUIS.InputBegan:Connect(function(i,g)\n if g then return end\n if i.KeyCode == Enum.KeyCode.C then\n  local h = p.Character and p.Character:FindFirstChild('Humanoid')\n  if h then h.HipHeight = 1 end\n end\nend)"
+    }
+  ]
+}
