@@ -1,14 +1,10 @@
 require("dotenv").config();
 const express = require("express");
-
 const { buildFromPrompt } = require("./engine/builder");
 
-const app = express(); // 🔥 THIS WAS MISSING
+const app = express();
 app.use(express.json());
 
-// =========================
-// GENERATE ROUTE
-// =========================
 app.post("/generate", (req, res) => {
     try {
 
@@ -26,7 +22,7 @@ app.post("/generate", (req, res) => {
         return res.json({
             success: true,
             packs: result.packs,
-            conflicts: result.conflicts || [],
+            conflicts: result.conflicts,
             components: result.files
         });
 
@@ -40,11 +36,8 @@ app.post("/generate", (req, res) => {
     }
 });
 
-// =========================
-// START SERVER
-// =========================
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("🚀 ScriptForge ENGINE v2 running on port", PORT);
+    console.log("🚀 ScriptForge ENGINE v3 running on port", PORT);
 });
