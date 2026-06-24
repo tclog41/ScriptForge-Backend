@@ -1,0 +1,12 @@
+{
+  "name": "Door System",
+  "keywords": ["door","open","close"],
+  "files": [
+    {
+      "name": "Door",
+      "type": "Script",
+      "parent": "Workspace",
+      "source": "local d = script.Parent\nlocal p = Instance.new('ProximityPrompt', d)\nlocal open = false\np.Triggered:Connect(function()\n open = not open\n d.CFrame = d.CFrame * CFrame.new(0,0, open and -5 or 5)\nend)"
+    }
+  ]
+}
