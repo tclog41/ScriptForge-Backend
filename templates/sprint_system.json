@@ -3,8 +3,6 @@
 
   "category": "movement",
 
-  "description": "Adds sprinting with Shift key and adjustable speed.",
-
   "keywords": [
     "sprint",
     "run",
@@ -17,13 +15,35 @@
     "movement"
   ],
 
-  "files": [
+  "components": [
     {
-      "name": "SprintController",
-      "type": "LocalScript",
-      "parent": "StarterPlayerScripts",
-      "folder": "Movement",
-      "source": "local UIS = game:GetService('UserInputService')\nlocal Players = game:GetService('Players')\n\nlocal player = Players.LocalPlayer\n\nlocal function getHumanoid()\n\tlocal char = player.Character or player.CharacterAdded:Wait()\n\treturn char:WaitForChild('Humanoid')\nend\n\nlocal normalSpeed = 16\nlocal sprintSpeed = 24\n\nlocal isSprinting = false\n\nUIS.InputBegan:Connect(function(input, gameProcessed)\n\tif gameProcessed then return end\n\tif input.KeyCode == Enum.KeyCode.LeftShift then\n\t\tisSprinting = true\n\t\tgetHumanoid().WalkSpeed = sprintSpeed\n\tend\nend)\n\nUIS.InputEnded:Connect(function(input)\n\tif input.KeyCode == Enum.KeyCode.LeftShift then\n\t\tisSprinting = false\n\t\tgetHumanoid().WalkSpeed = normalSpeed\n\tend\nend)\n"
+      "id": "core",
+      "name": "Sprint Logic",
+      "required": true,
+      "files": [
+        {
+          "name": "SprintController",
+          "type": "LocalScript",
+          "parent": "StarterPlayerScripts",
+          "folder": "Movement",
+          "source": "local UIS = game:GetService('UserInputService')\nlocal Players = game:GetService('Players')\n\nlocal player = Players.LocalPlayer\n\nlocal function getHumanoid()\n\tlocal char = player.Character or player.CharacterAdded:Wait()\n\treturn char:WaitForChild('Humanoid')\nend\n\nlocal normalSpeed = 16\nlocal sprintSpeed = 24\n\nUIS.InputBegan:Connect(function(input, gp)\n\tif gp then return end\n\tif input.KeyCode == Enum.KeyCode.LeftShift then\n\t\tgetHumanoid().WalkSpeed = sprintSpeed\n\tend\nend)\n\nUIS.InputEnded:Connect(function(input)\n\tif input.KeyCode == Enum.KeyCode.LeftShift then\n\t\tgetHumanoid().WalkSpeed = normalSpeed\n\tend\nend)"
+        }
+      ]
+    },
+
+    {
+      "id": "stamina",
+      "name": "Stamina System",
+      "required": false,
+      "files": [
+        {
+          "name": "StaminaHandler",
+          "type": "LocalScript",
+          "parent": "StarterPlayerScripts",
+          "folder": "Movement",
+          "source": "print('Stamina system placeholder')"
+        }
+      ]
     }
   ]
 }
